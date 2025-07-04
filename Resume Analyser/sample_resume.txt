@@ -1,0 +1,37 @@
+KAJAL GUPTA
+Email: kajal.gupta@email.com
+Phone: (555) 123-4567
+
+PROFESSIONAL SUMMARY
+Dedicated software developer with experience in Python programming and web development. Strong analytical and problem-solving skills with a focus on creating efficient solutions.
+
+SKILLS
+- Programming Languages: Python, JavaScript, HTML, CSS
+- Frameworks: Django, React
+- Tools: Git, Docker
+- Databases: MySQL, MongoDB
+- Other: API Development, Data Analysis
+
+EXPERIENCE
+Software Developer | Tech Solutions Inc.
+June 2023 - Present
+- Developed and maintained web applications using Python and Django
+- Implemented RESTful APIs for client-server communication
+- Collaborated with team members using Git for version control
+- Optimized database queries for improved performance
+
+Junior Developer | StartUp Tech
+January 2023 - May 2023
+- Assisted in frontend development using React
+- Participated in code reviews and testing
+- Created documentation for project modules
+
+EDUCATION
+Bachelor of Technology in Computer Science
+University of Technology
+2019 - 2023
+
+CERTIFICATIONS
+- Python Programming Certification
+- Web Development Bootcamp
+- Git Essential Training
