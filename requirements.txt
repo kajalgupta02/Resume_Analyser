@@ -1,0 +1,11 @@
+customtkinter
+scikit-learn
+numpy
+matplotlib
+python-docx
+PyMuPDF
+nltk
+textblob
+Pillow
+sv-ttk
+ttkthemes
