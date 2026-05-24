@@ -5,13 +5,19 @@ class LandingPage(ctk.CTkFrame):
         super().__init__(parent)
         self.app = app
         
+        self._create_background()
+        self._create_hero_section()
+        self._create_info_section()
+
+    def _create_background(self):
         # Enhanced Background design
         self.bg_accent = ctk.CTkFrame(self, fg_color="#4361ee", width=900, height=900, corner_radius=450)
         self.bg_accent.place(relx=0.95, rely=-0.15, anchor="center")
         
         self.bg_accent2 = ctk.CTkFrame(self, fg_color="#4cc9f0", width=500, height=500, corner_radius=250)
         self.bg_accent2.place(relx=0.05, rely=0.95, anchor="center")
-        
+
+    def _create_hero_section(self):
         # Hero Section with Glassmorphism feel
         self.hero_container = ctk.CTkFrame(self, fg_color=("gray95", "gray15"), corner_radius=30, border_width=1, border_color="gray30")
         self.hero_container.place(relx=0.5, rely=0.45, anchor="center", relwidth=0.85, relheight=0.7)
@@ -19,19 +25,24 @@ class LandingPage(ctk.CTkFrame):
         # Center content inside hero
         self.content_frame = ctk.CTkFrame(self.hero_container, fg_color="transparent")
         self.content_frame.place(relx=0.5, rely=0.5, anchor="center")
+
+        self.content_frame.grid_rowconfigure(0, weight=1)
+        self.content_frame.grid_rowconfigure(1, weight=1)
+        self.content_frame.grid_rowconfigure(2, weight=1)
+        self.content_frame.grid_columnconfigure(0, weight=1)
         
         self.title_label = ctk.CTkLabel(self.content_frame, 
                                        text="Your Career Glow-Up\nStarts Here. ✨", 
                                        font=("Arial", 68, "bold"),
                                        justify="center",
                                        text_color=("#1a1a2e", "#ffffff"))
-        self.title_label.pack(pady=(0, 20), padx=20)
+        self.title_label.grid(row=0, column=0, pady=(0, 20), padx=20, sticky="nsew")
         
         self.desc_label = ctk.CTkLabel(self.content_frame, 
                                       text="Stop guessing. Let AI fix your resume and land that interview.\nSassy, smart, and ready to work.",
                                       font=("Arial", 24),
                                       text_color=("#4a4a4a", "#b0b0b0"))
-        self.desc_label.pack(pady=10, padx=20)
+        self.desc_label.grid(row=1, column=0, pady=10, padx=20, sticky="nsew")
         
         self.start_button = ctk.CTkButton(self.content_frame, 
                                         text="LET'S DO THIS 🚀", 
@@ -42,9 +53,10 @@ class LandingPage(ctk.CTkFrame):
                                         text_color="#000000",
                                         font=("Arial", 24, "bold"),
                                         corner_radius=37.5,
-                                        command=lambda: parent.show_page("UploadPage"))
-        self.start_button.pack(pady=60)
-        
+                                        command=lambda: self.master.show_page("UploadPage"))
+        self.start_button.grid(row=2, column=0, pady=60, sticky="s")
+
+    def _create_info_section(self):
         # Bottom info section - Floating style
         self.info_frame = ctk.CTkFrame(self, fg_color=("#ffffff", "#1a1a2e"), height=90, corner_radius=20, border_width=1, border_color="gray30")
         self.info_frame.pack(side="bottom", fill="x", padx=100, pady=40)
