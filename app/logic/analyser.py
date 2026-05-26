@@ -107,19 +107,38 @@ class ResumeAnalyser:
             "Skills": bool(re.search(r'skills|technologies|proficiencies|expertise', self.resume_text, re.I))
         }
 
+        # --- Action Verb Analysis ---
+        action_verbs = ['managed', 'led', 'developed', 'created', 'implemented', 'achieved', 'improved', 'negotiated', 'streamlined', 'spearheaded', 'architected', 'engineered', 'drove', 'pioneered']
+        found_verbs = [verb for verb in action_verbs if verb in cleaned_resume]
+
+        # --- Quantifiable Metrics Analysis ---
+        quantifiable_metrics = len(re.findall(r'\b\d+\%?\b|\$[\d,]+', self.resume_text))
+
+        # --- Generate Suggestions ---
+        suggestions = []
+        if similarity < 0.4:
+            suggestions.append("Your resume has a low keyword match. Tailor your resume by incorporating more terms from the job description.")
+        if len(missing_keywords) > 5:
+            suggestions.append(f"You're missing several key terms like '{', '.join(missing_keywords[:3])}...'. Find places to add these naturally.")
+        if len(found_verbs) < 5:
+            suggestions.append("Strengthen your experience section by using more powerful action verbs like 'developed', 'managed', or 'spearheaded'.")
+        if quantifiable_metrics < 2:
+            suggestions.append("Add more quantifiable achievements. Instead of 'improved performance', try 'improved performance by 15%'.")
+        if word_count > 700:
+            suggestions.append("Your resume is a bit long. Aim for a concise, one-page resume unless you have over 10 years of experience.")
+        elif word_count < 300:
+            suggestions.append("Your resume seems a bit short. Ensure you've detailed your experiences and skills adequately.")
+
         self.results = {
-            "score": similarity * 100,
-            "metrics": {
-                "word_count": word_count,
-                "readability": readability,
-                "sentence_count": sentence_count,
-                "avg_word_len": avg_word_len
-            },
-            "sections": sections,
-            "missing_keywords": missing_keywords,
+            "similarity_score": similarity,
+            "word_count": word_count,
+            "readability": readability,
+            "jd_keywords": important_keywords,
             "present_keywords": present_keywords,
-            "total_keywords": important_keywords,
-            "recommendations": self.generate_recommendations(similarity, missing_keywords, sections)
+            "missing_keywords": missing_keywords,
+            "action_verbs": found_verbs,
+            "quantifiable_metrics": quantifiable_metrics,
+            "suggestions": suggestions
         }
         
         return self.results

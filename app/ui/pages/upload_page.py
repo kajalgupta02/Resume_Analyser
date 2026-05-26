@@ -108,61 +108,63 @@ class UploadPage(ctk.CTkFrame):
 
     def browse_files(self):
         file_path = filedialog.askopenfilename(
-            filetypes=[("Resume files", "*.pdf *.docx *.txt")]
+            title="Select your masterpiece (aka resume)",
+            filetypes=(("PDF files", "*.pdf"), ("Word files", "*.docx"), ("Text files", "*.txt"), ("All files", "*.*"))
         )
         if file_path:
             self.app.resume_path = file_path
-            self.upload_label.configure(text=f"Selected: {os.path.basename(file_path)}", text_color="#4cc9f0")
-            try:
-                self.app.analyser.load_resume(file_path)
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to load resume: {str(e)}")
+            filename = os.path.basename(file_path)
+            self.upload_label.configure(text=f"Selected: {filename}", text_color="#4cc9f0")
+            self.browse_button.configure(text="Change File")
 
     def on_role_select(self, role):
         if role in self.app.analyser.job_roles:
             keywords = ", ".join(self.app.analyser.job_roles[role])
-            self.jd_text.delete("1.0", "end")
-            self.jd_text.insert("1.0", f"Role: {role}\n\nKey Requirements: {keywords}")
+            self.jd_text.delete("0.0", "end")
+            self.jd_text.insert("0.0", f"Keywords for {role}:\n{keywords}")
 
     def run_analysis(self):
-        jd = self.jd_text.get("1.0", "end-1c").strip()
         if not self.app.resume_path:
-            messagebox.showwarning("Hold Up!", "You forgot to upload your resume, babe.")
+            messagebox.showerror("Hold Up!", "You forgot to upload your resume. Let's not get ahead of ourselves.")
             return
-        if not jd or "paste the job description" in jd:
-            messagebox.showwarning("Wait a minute...", "We need to know what job you're aiming for!")
+
+        job_description = self.jd_text.get("0.0", "end").strip()
+        if not job_description or job_description == "Or paste the job description here...":
+            messagebox.showerror("What's the Goal?", "Please select a role or paste a job description. I'm smart, but not a mind reader.")
             return
-            
-        # Show loading state with animation
-        self.analyze_button.configure(state="disabled", text="DECODING YOUR FUTURE... 🧠")
-        self.loading_bar.pack(pady=10)
-        self.loading_bar.start()
-        
-        # Run analysis in a separate thread
-        def thread_target():
-            import time
-            time.sleep(1.5) # Dramatic pause for "AI thinking"
+
+        self.analyze_button.configure(text="ANALYZING...", state="disabled")
+        self.app.page_manager.show_page("ResultsPage")
+
+        def analysis_thread():
             try:
-                self.app.analyser.set_job_description(jd)
-                results = self.app.analyser.analyze()
-                self.after(0, lambda: self.finish_analysis(results))
+                self.app.analyser.load_resume(self.app.resume_path)
+                self.app.analyser.set_job_description(job_description)
+                self.app.analysis_results = self.app.analyser.analyze()
+                
+                # Switch back to main thread to update UI
+                self.app.after(100, self.on_analysis_complete)
             except Exception as e:
-                self.after(0, lambda: self.handle_analysis_error(e))
+                self.app.after(100, lambda: self.on_analysis_error(e))
 
-        threading.Thread(target=thread_target, daemon=True).start()
+        threading.Thread(target=analysis_thread, daemon=True).start()
 
-    def finish_analysis(self, results):
-        self.loading_bar.stop()
-        self.loading_bar.pack_forget()
-        self.analyze_button.configure(state="normal", text="WORK YOUR MAGIC ✨")
-        if results:
-            self.app.analysis_results = results
-            self.master.show_page("ResultsPage")
-        else:
-            messagebox.showerror("Oops!", "Something went wrong. Even AI has bad days.")
+    def on_analysis_complete(self):
+        self.analyze_button.configure(text="WORK YOUR MAGIC ✨", state="normal")
+        results_page = self.app.page_manager.pages.get("ResultsPage")
+        if results_page:
+            results_page.refresh()
 
-    def handle_analysis_error(self, error):
-        self.loading_bar.stop()
-        self.loading_bar.pack_forget()
-        self.analyze_button.configure(state="normal", text="WORK YOUR MAGIC ✨")
-        messagebox.showerror("Oops!", f"Error during analysis: {str(error)}")
+    def on_analysis_error(self, error):
+        self.analyze_button.configure(text="WORK YOUR MAGIC ✨", state="normal")
+        messagebox.showerror("Uh Oh!", f"An error occurred during analysis:\n{error}")
+        self.app.page_manager.show_page("UploadPage")
+
+    def refresh(self):
+        # Reset fields on page view
+        self.app.resume_path = None
+        self.upload_label.configure(text="Drop your resume here\nor click to browse", text_color="gray")
+        self.browse_button.configure(text="Browse Files")
+        self.role_var.set("Pick a dream role...")
+        self.jd_text.delete("0.0", "end")
+        self.jd_text.insert("0.0", "Or paste the job description here...")
