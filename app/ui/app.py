@@ -2,6 +2,7 @@ import customtkinter as ctk
 from .sidebar import Sidebar
 from .page_manager import PageManager
 from ..logic.analyser import ResumeAnalyser
+from ..logic.history_manager import HistoryManager
 
 class App(ctk.CTk):
     def __init__(self):
@@ -10,8 +11,9 @@ class App(ctk.CTk):
         self.geometry("1200x800")
         self.resizable(True, True)
         
-        # Initialize analyser and data storage
+        # Initialize managers and data storage
         self.analyser = ResumeAnalyser()
+        self.history_manager = HistoryManager()
         self.analysis_results = None
         self.resume_path = None
         

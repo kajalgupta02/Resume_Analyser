@@ -70,6 +70,37 @@ class ResultsPage(ctk.CTkFrame):
             ("Readability Score:", f"{results.get('readability', 0):.1f}/100 (Higher is better)"),
         ], self.scrollable_frame)
 
+        # --- Action Verbs & Metrics ---
+        self.create_section("Impact Analysis 💪", [
+            ("Action Verbs Found:", f"{len(results.get('action_verbs', []))}"),
+            ("Quantifiable Metrics:", f"{results.get('quantifiable_metrics', 0)}"),
+        ], self.scrollable_frame)
+
+        # --- Suggestions Section ---
+        suggestions = results.get('suggestions', [])
+        if suggestions:
+            suggestions_frame = ctk.CTkFrame(self.scrollable_frame, corner_radius=15, border_width=1, border_color="#fca311")
+            suggestions_frame.pack(fill="x", pady=10)
+            
+            ctk.CTkLabel(suggestions_frame, text="Suggestions for Improvement 💡", font=("Arial", 20, "bold"), text_color="#fca311").pack(pady=(15, 10), anchor="w", padx=20)
+            
+            for suggestion in suggestions:
+                ctk.CTkLabel(suggestions_frame, text=f"• {suggestion}", font=("Arial", 14), wraplength=750, justify="left").pack(anchor="w", padx=25, pady=5)
+            
+            # Add some padding at the bottom
+            ctk.CTkLabel(suggestions_frame, text="").pack()
+
+        # --- Save Report Button ---
+        save_button = ctk.CTkButton(self.scrollable_frame, text="Save Report 💾", command=self.save_report, height=40, font=("Arial", 16, "bold"))
+        save_button.pack(pady=(20, 0), padx=20, fill="x")
+
+    def save_report(self):
+        if self.app.analysis_results:
+            self.app.history_manager.add_analysis(self.app.analysis_results)
+            messagebox.showinfo("Report Saved", "Your analysis report has been saved to your history.")
+        else:
+            messagebox.showwarning("No Report", "There is no analysis report to save.")
+
     def create_section(self, title, data, parent):
         section_frame = ctk.CTkFrame(parent, corner_radius=15, border_width=1, border_color="gray30")
         section_frame.pack(fill="x", pady=10)

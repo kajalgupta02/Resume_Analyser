@@ -15,6 +15,17 @@ class Sidebar(ctk.CTkFrame):
         self.add_button("🔍 Analyze", "UploadPage")
         self.add_button("📊 Results", "ResultsPage")
         self.add_button("⚙️ Settings", "SettingsPage")
+        self.add_button("📜 History", "HistoryPage")
+        
+        # --- Bottom Buttons ---
+        self.bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.bottom_frame.pack(side="bottom", fill="x", padx=10, pady=20)
+        
+        self.help_button = ctk.CTkButton(self.bottom_frame, text="Help", fg_color="transparent", hover_color="#4361ee")
+        self.help_button.pack(pady=5)
+        
+        self.quit_button = ctk.CTkButton(self.bottom_frame, text="Quit", fg_color="transparent", hover_color="#e71d36", command=self.parent.quit)
+        self.quit_button.pack(pady=5)
 
     def add_button(self, name, page_name):
         btn_container = ctk.CTkFrame(self, fg_color="transparent")

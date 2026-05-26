@@ -3,6 +3,7 @@ from .pages.landing_page import LandingPage
 from .pages.upload_page import UploadPage
 from .pages.results_page import ResultsPage
 from .pages.settings_page import SettingsPage
+from .pages.history_page import HistoryPage
 
 class PageManager(ctk.CTkFrame):
     def __init__(self, app):
@@ -11,11 +12,12 @@ class PageManager(ctk.CTkFrame):
         self.pages = {}
         self.current_page = None
 
-        for Page in (LandingPage, UploadPage, ResultsPage, SettingsPage):
+        for Page in (LandingPage, UploadPage, ResultsPage, SettingsPage, HistoryPage):
             page_name = Page.__name__
             page = Page(self, self.app)
             self.pages[page_name] = page
-            page.pack(fill="both", expand=True)
+            # Do not pack pages during initialization
+            # page.pack(fill="both", expand=True)
 
         self.show_page("LandingPage")
 
