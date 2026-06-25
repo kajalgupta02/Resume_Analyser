@@ -1,0 +1,49 @@
+[
+    {
+        "id": "20260526001340",
+        "date": "2026-05-26 00:13:40",
+        "results": {
+            "similarity_score": 0.2876582249614076,
+            "word_count": 394,
+            "readability": 15.735239113010955,
+            "jd_keywords": [
+                "tableau",
+                "statistics",
+                "keywords",
+                "sql",
+                "power",
+                "python",
+                "pandas",
+                "visualization",
+                "data",
+                "bi",
+                "excel",
+                "analyst"
+            ],
+            "present_keywords": [
+                "sql",
+                "power",
+                "python",
+                "pandas",
+                "visualization",
+                "data",
+                "bi",
+                "excel",
+                "analyst"
+            ],
+            "missing_keywords": [
+                "tableau",
+                "statistics",
+                "keywords"
+            ],
+            "action_verbs": [
+                "implemented"
+            ],
+            "quantifiable_metrics": 12,
+            "suggestions": [
+                "Your resume has a low keyword match. Tailor your resume by incorporating more terms from the job description.",
+                "Strengthen your experience section by using more powerful action verbs like 'developed', 'managed', or 'spearheaded'."
+            ]
+        }
+    }
+]
