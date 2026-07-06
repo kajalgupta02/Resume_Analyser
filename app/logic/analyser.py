@@ -128,6 +128,9 @@ class ResumeAnalyser:
             suggestions.append("Your resume is a bit long. Aim for a concise, one-page resume unless you have over 10 years of experience.")
         elif word_count < 300:
             suggestions.append("Your resume seems a bit short. Ensure you've detailed your experiences and skills adequately.")
+        for section_name, present in sections.items():
+            if not present:
+                suggestions.append(f"Add a clear {section_name.lower()} section to improve structure and ATS readability.")
 
         self.results = {
             "similarity_score": similarity,
@@ -138,6 +141,7 @@ class ResumeAnalyser:
             "missing_keywords": missing_keywords,
             "action_verbs": found_verbs,
             "quantifiable_metrics": quantifiable_metrics,
+            "sections": sections,
             "suggestions": suggestions
         }
         

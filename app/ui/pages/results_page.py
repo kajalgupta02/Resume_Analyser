@@ -1,114 +1,196 @@
 import customtkinter as ctk
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import tkinter.messagebox as messagebox
 from textwrap import wrap
+
 
 class ResultsPage(ctk.CTkFrame):
     def __init__(self, parent, app):
         super().__init__(parent)
         self.app = app
-        
+
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
-        # Header
-        self.header = ctk.CTkLabel(self, text="Analyzing...", font=("Arial", 32, "bold"), text_color="#4cc9f0")
-        self.header.grid(row=0, column=0, pady=(40, 20), padx=40, sticky="w")
+        self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.header_frame.grid(row=0, column=0, sticky="ew", padx=40, pady=(34, 12))
+        self.header_frame.grid_columnconfigure(0, weight=1)
 
-        # Results container
+        self.header = ctk.CTkLabel(
+            self.header_frame,
+            text="Analysis Report",
+            font=("Arial", 32, "bold"),
+            text_color="#4cc9f0"
+        )
+        self.header.grid(row=0, column=0, sticky="w")
+
+        self.subheader = ctk.CTkLabel(
+            self.header_frame,
+            text="A practical breakdown of resume fit, gaps, and next actions.",
+            font=("Arial", 16),
+            text_color=("gray35", "gray80")
+        )
+        self.subheader.grid(row=1, column=0, sticky="w", pady=(4, 0))
+
         self.scrollable_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.scrollable_frame.grid(row=1, column=0, sticky="nsew", padx=40, pady=(0, 40))
         self.scrollable_frame.grid_columnconfigure(0, weight=1)
 
     def refresh(self):
-        # Clear previous results
         for widget in self.scrollable_frame.winfo_children():
             widget.destroy()
 
         results = self.app.analysis_results
         if not results:
-            self.header.configure(text="Analysis Failed or Incomplete")
-            ctk.CTkLabel(self.scrollable_frame, text="Something went wrong. Please try again.", font=("Arial", 18)).pack(pady=20)
+            self.header.configure(text="No Analysis Available")
+            self.subheader.configure(text="Run a resume analysis to see a score, keyword gaps, and tailored recommendations.")
+
+            empty_state = ctk.CTkFrame(self.scrollable_frame, corner_radius=20, border_width=1, border_color="gray30")
+            empty_state.pack(fill="x", pady=(12, 20))
+
+            ctk.CTkLabel(
+                empty_state,
+                text="Upload a resume and start an analysis to generate this report.",
+                font=("Arial", 18, "bold")
+            ).pack(pady=(22, 8), padx=20)
+            ctk.CTkLabel(
+                empty_state,
+                text="You will get a match score, keyword coverage, section checks, and a clear set of improvements.",
+                font=("Arial", 14),
+                wraplength=780,
+                justify="center"
+            ).pack(pady=(0, 22), padx=20)
             return
 
-        self.header.configure(text="Here's the Tea ☕")
+        self.header.configure(text="Resume Match Report")
+        self.subheader.configure(text="A concise summary of alignment, evidence, and the highest-value edits.")
 
-        # --- Score Card ---
-        score = results.get('similarity_score', 0) * 100
-        score_color = "#4cc9f0" if score > 70 else ("#fca311" if score > 40 else "#e71d36")
-        
-        score_card = ctk.CTkFrame(self.scrollable_frame, corner_radius=20, border_width=2, border_color=score_color)
-        score_card.pack(fill="x", pady=(0, 20))
-        
-        ctk.CTkLabel(score_card, text="Overall Match Score", font=("Arial", 24, "bold")).pack(pady=(20, 5))
-        ctk.CTkLabel(score_card, text=f"{score:.1f}%", font=("Arial", 60, "bold"), text_color=score_color).pack(pady=5)
-        ctk.CTkLabel(score_card, text="This score reflects how well your resume aligns with the job description based on keywords and phrasing.", font=("Arial", 14), wraplength=600).pack(pady=(5, 20))
+        score = float(results.get('similarity_score', 0)) * 100
+        score_color, score_label, score_message = self.get_score_context(score)
 
-        # --- Keywords Section ---
-        self.create_section("Keywords Analysis 🔑", [
-            ("Keywords in Job Description:", f"{len(results.get('jd_keywords', []))}"),
-            ("Keywords Found in Your Resume:", f"{len(results.get('present_keywords', []))}"),
-            ("Keywords Missing From Your Resume:", f"{len(results.get('missing_keywords', []))}"),
-        ], self.scrollable_frame)
+        hero_card = ctk.CTkFrame(self.scrollable_frame, corner_radius=24, border_width=2, border_color=score_color)
+        hero_card.pack(fill="x", pady=(0, 18))
+        hero_card.grid_columnconfigure(0, weight=1)
+        hero_card.grid_columnconfigure(1, weight=1)
 
-        # --- Missing Keywords Details ---
-        missing_kw_frame = ctk.CTkFrame(self.scrollable_frame, fg_color="transparent")
-        missing_kw_frame.pack(fill="x", pady=(10, 20))
-        
-        ctk.CTkLabel(missing_kw_frame, text="💡 Pro-Tip: Weave these missing keywords naturally into your resume.", font=("Arial", 16, "italic")).pack()
-        
-        missing_keywords_text = ", ".join(results.get('missing_keywords', ['None! You rock!']))
-        wrapped_text = '\n'.join(wrap(missing_keywords_text, 80))
-        
-        kw_box = ctk.CTkLabel(missing_kw_frame, text=wrapped_text, font=("Arial", 14), fg_color=("gray90", "gray20"), corner_radius=10, justify="center")
-        kw_box.pack(fill="x", pady=10, ipady=10)
+        hero_left = ctk.CTkFrame(hero_card, fg_color="transparent")
+        hero_left.grid(row=0, column=0, sticky="nsew", padx=(22, 12), pady=22)
 
-        # --- Readability & Stats ---
-        self.create_section("Resume Stats 📊", [
-            ("Word Count:", f"{results.get('word_count', 'N/A')} (Tip: Aim for 400-600 words)"),
-            ("Readability Score:", f"{results.get('readability', 0):.1f}/100 (Higher is better)"),
-        ], self.scrollable_frame)
+        ctk.CTkLabel(hero_left, text=score_label, font=("Arial", 18, "bold"), text_color=score_color).pack(anchor="w")
+        ctk.CTkLabel(hero_left, text=f"{score:.1f}%", font=("Arial", 58, "bold"), text_color=score_color).pack(anchor="w", pady=(4, 0))
+        ctk.CTkLabel(hero_left, text=score_message, font=("Arial", 15), wraplength=480, justify="left").pack(anchor="w", pady=(8, 0))
 
-        # --- Action Verbs & Metrics ---
-        self.create_section("Impact Analysis 💪", [
-            ("Action Verbs Found:", f"{len(results.get('action_verbs', []))}"),
-            ("Quantifiable Metrics:", f"{results.get('quantifiable_metrics', 0)}"),
-        ], self.scrollable_frame)
+        hero_right = ctk.CTkFrame(hero_card, fg_color="transparent")
+        hero_right.grid(row=0, column=1, sticky="nsew", padx=(12, 22), pady=22)
 
-        # --- Suggestions Section ---
+        self.create_metric_row(hero_right, "Keywords found", f"{len(results.get('present_keywords', []))}/{len(results.get('jd_keywords', []))}")
+        self.create_metric_row(hero_right, "Action verbs", f"{len(results.get('action_verbs', []))}")
+        self.create_metric_row(hero_right, "Quantifiable metrics", f"{results.get('quantifiable_metrics', 0)}")
+        self.create_metric_row(hero_right, "Readability", f"{results.get('readability', 0):.1f}/100")
+
+        self.create_section(
+            "What this means",
+            [
+                ("Alignment", self.get_alignment_text(score)),
+                ("Word count", f"{results.get('word_count', 'N/A')} words"),
+                ("Readability", f"{results.get('readability', 0):.1f}/100"),
+            ],
+            self.scrollable_frame
+        )
+
+        keyword_frame = ctk.CTkFrame(self.scrollable_frame, corner_radius=18, border_width=1, border_color="gray30")
+        keyword_frame.pack(fill="x", pady=10)
+        ctk.CTkLabel(keyword_frame, text="Keyword Coverage", font=("Arial", 20, "bold"), text_color="#4cc9f0").pack(pady=(15, 8), anchor="w", padx=20)
+        self.create_metric_row(keyword_frame, "Keywords in job description", f"{len(results.get('jd_keywords', []))}", pad_x=20)
+        self.create_metric_row(keyword_frame, "Keywords already present", f"{len(results.get('present_keywords', []))}", pad_x=20)
+        self.create_metric_row(keyword_frame, "Keywords to add", f"{len(results.get('missing_keywords', []))}", pad_x=20)
+
+        missing_keywords = results.get('missing_keywords', [])
+        missing_keywords_text = ", ".join(missing_keywords) if missing_keywords else "No major keyword gaps were detected."
+        wrapped_text = '\n'.join(wrap(missing_keywords_text, 78))
+
+        kw_box = ctk.CTkLabel(
+            keyword_frame,
+            text=wrapped_text,
+            font=("Arial", 14),
+            fg_color=("gray92", "gray18"),
+            corner_radius=12,
+            justify="left",
+            anchor="w"
+        )
+        kw_box.pack(fill="x", padx=20, pady=(10, 18), ipady=10)
+
+        self.create_section(
+            "Resume Signals",
+            [
+                ("Action verbs found", f"{len(results.get('action_verbs', []))}"),
+                ("Quantifiable metrics", f"{results.get('quantifiable_metrics', 0)}"),
+            ],
+            self.scrollable_frame
+        )
+
+        sections = results.get('sections', {})
+        if sections:
+            section_frame = ctk.CTkFrame(self.scrollable_frame, corner_radius=18, border_width=1, border_color="gray30")
+            section_frame.pack(fill="x", pady=10)
+            ctk.CTkLabel(section_frame, text="ATS Section Check", font=("Arial", 20, "bold"), text_color="#4cc9f0").pack(pady=(15, 8), anchor="w", padx=20)
+            for section_name, present in sections.items():
+                row = ctk.CTkFrame(section_frame, fg_color="transparent")
+                row.pack(fill="x", padx=20, pady=4)
+                status_text = "Included" if present else "Missing"
+                status_color = "#2ec4b6" if present else "#e71d36"
+                ctk.CTkLabel(row, text=section_name, font=("Arial", 15)).pack(side="left")
+                ctk.CTkLabel(row, text=status_text, font=("Arial", 15, "bold"), text_color=status_color).pack(side="right")
+
         suggestions = results.get('suggestions', [])
         if suggestions:
             suggestions_frame = ctk.CTkFrame(self.scrollable_frame, corner_radius=15, border_width=1, border_color="#fca311")
             suggestions_frame.pack(fill="x", pady=10)
-            
-            ctk.CTkLabel(suggestions_frame, text="Suggestions for Improvement 💡", font=("Arial", 20, "bold"), text_color="#fca311").pack(pady=(15, 10), anchor="w", padx=20)
-            
+
+            ctk.CTkLabel(suggestions_frame, text="Priority Improvements", font=("Arial", 20, "bold"), text_color="#fca311").pack(pady=(15, 10), anchor="w", padx=20)
+
             for suggestion in suggestions:
                 ctk.CTkLabel(suggestions_frame, text=f"• {suggestion}", font=("Arial", 14), wraplength=750, justify="left").pack(anchor="w", padx=25, pady=5)
-            
-            # Add some padding at the bottom
+
             ctk.CTkLabel(suggestions_frame, text="").pack()
 
-        # --- Save Report Button ---
-        save_button = ctk.CTkButton(self.scrollable_frame, text="Save Report 💾", command=self.save_report, height=40, font=("Arial", 16, "bold"))
+        save_button = ctk.CTkButton(self.scrollable_frame, text="Save to History", command=self.save_report, height=42, font=("Arial", 16, "bold"))
         save_button.pack(pady=(20, 0), padx=20, fill="x")
 
     def save_report(self):
         if self.app.analysis_results:
             self.app.history_manager.add_analysis(self.app.analysis_results)
-            messagebox.showinfo("Report Saved", "Your analysis report has been saved to your history.")
+            messagebox.showinfo("Report Saved", "The report has been added to your history.")
         else:
             messagebox.showwarning("No Report", "There is no analysis report to save.")
 
     def create_section(self, title, data, parent):
         section_frame = ctk.CTkFrame(parent, corner_radius=15, border_width=1, border_color="gray30")
         section_frame.pack(fill="x", pady=10)
-        
+
         ctk.CTkLabel(section_frame, text=title, font=("Arial", 20, "bold"), text_color="#4cc9f0").pack(pady=(15, 10), anchor="w", padx=20)
-        
+
         for label, value in data:
             item_frame = ctk.CTkFrame(section_frame, fg_color="transparent")
             item_frame.pack(fill="x", padx=20, pady=5)
             ctk.CTkLabel(item_frame, text=label, font=("Arial", 16)).pack(side="left")
             ctk.CTkLabel(item_frame, text=value, font=("Arial", 16, "bold")).pack(side="right")
+
+    def create_metric_row(self, parent, label, value, pad_x=0):
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", padx=pad_x, pady=4)
+        ctk.CTkLabel(row, text=label, font=("Arial", 14)).pack(side="left")
+        ctk.CTkLabel(row, text=value, font=("Arial", 14, "bold")).pack(side="right")
+
+    def get_score_context(self, score):
+        if score >= 75:
+            return "#2ec4b6", "Strong Match", "Your resume is closely aligned with the role. Focus on sharpening impact statements and keeping the strongest evidence near the top."
+        if score >= 45:
+            return "#fca311", "Moderate Match", "The foundation is there, but several keywords and signals still need to be added or tightened to improve fit."
+        return "#e71d36", "Low Match", "The resume needs more role-specific language and stronger evidence before it will read as a competitive fit."
+
+    def get_alignment_text(self, score):
+        if score >= 75:
+            return "High alignment with the target role"
+        if score >= 45:
+            return "Moderate alignment, with several clear gaps"
+        return "Low alignment; the resume needs deeper tailoring"
