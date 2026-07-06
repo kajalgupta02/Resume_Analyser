@@ -7,8 +7,11 @@ from ..logic.history_manager import HistoryManager
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
+        ctk.set_appearance_mode("Dark")  # Default to dark for that "sassy" look
+        ctk.set_default_color_theme("blue")  # We'll customize colors further
         self.title("AI Resume Improver Pro")
         self.geometry("1200x800")
+        self.minsize(1100, 720)
         self.resizable(True, True)
         
         # Initialize managers and data storage
@@ -16,9 +19,6 @@ class App(ctk.CTk):
         self.history_manager = HistoryManager()
         self.analysis_results = None
         self.resume_path = None
-        
-        ctk.set_appearance_mode("Dark")  # Default to dark for that "sassy" look
-        ctk.set_default_color_theme("blue")  # We'll customize colors further
         
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)

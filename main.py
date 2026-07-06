@@ -1,6 +1,10 @@
 from app.ui.app import App
 
-app = App()
+
+def main():
+    app = App()
+    app.run()
+
 
 if __name__ == "__main__":
-    app.run()
+    main()
