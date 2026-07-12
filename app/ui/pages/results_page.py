@@ -82,6 +82,7 @@ class ResultsPage(ctk.CTkFrame):
         hero_right = ctk.CTkFrame(hero_card, fg_color="transparent")
         hero_right.grid(row=0, column=1, sticky="nsew", padx=(12, 22), pady=22)
 
+        self.create_metric_row(hero_right, "Similarity mode", results.get('similarity_mode', 'tfidf').upper())
         self.create_metric_row(hero_right, "Keywords found", f"{len(results.get('present_keywords', []))}/{len(results.get('jd_keywords', []))}")
         self.create_metric_row(hero_right, "Action verbs", f"{len(results.get('action_verbs', []))}")
         self.create_metric_row(hero_right, "Quantifiable metrics", f"{results.get('quantifiable_metrics', 0)}")
@@ -126,6 +127,19 @@ class ResultsPage(ctk.CTkFrame):
                 ("Quantifiable metrics", f"{results.get('quantifiable_metrics', 0)}"),
             ],
             self.scrollable_frame
+        )
+
+        tfidf_similarity = float(results.get('tfidf_similarity_score', results.get('similarity_score', 0.0))) * 100
+        semantic_similarity = results.get('semantic_similarity_score')
+        semantic_available = bool(results.get('semantic_similarity_available', False))
+        self.create_section(
+            "Similarity Comparison",
+            [
+                ("TF-IDF score", f"{tfidf_similarity:.1f}%"),
+                ("Semantic score", f"{float(semantic_similarity) * 100:.1f}%" if semantic_similarity is not None else "Unavailable"),
+                ("Semantic mode", "Ready" if semantic_available else "Falling back to TF-IDF"),
+            ],
+            self.scrollable_frame,
         )
 
         sections = results.get('sections', {})

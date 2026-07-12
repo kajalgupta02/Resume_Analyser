@@ -23,6 +23,10 @@ class ResumeAnalysisResult:
     similarity_score: float
     word_count: int
     readability: float
+    similarity_mode: str = "tfidf"
+    tfidf_similarity_score: float = 0.0
+    semantic_similarity_score: float | None = None
+    semantic_similarity_available: bool = False
     jd_keywords: list[str] = field(default_factory=list)
     present_keywords: list[str] = field(default_factory=list)
     missing_keywords: list[str] = field(default_factory=list)
@@ -57,6 +61,35 @@ def _compile_patterns(config: Mapping[str, Any]) -> dict[str, re.Pattern[str]]:
         compiled_patterns[section_name] = re.compile(r"(?:" + r"|".join(escaped_keywords) + r")", re.IGNORECASE)
 
     return compiled_patterns
+
+
+@lru_cache(maxsize=1)
+def _load_spacy_nlp():
+    try:
+        import spacy
+    except Exception:
+        return None
+
+    for model_name in ("en_core_web_sm", "en_core_web_md", "en_core_web_lg"):
+        try:
+            return spacy.load(model_name)
+        except Exception:
+            continue
+
+    return None
+
+
+@lru_cache(maxsize=1)
+def _load_sentence_transformer_model():
+    try:
+        from sentence_transformers import SentenceTransformer
+    except Exception:
+        return None
+
+    try:
+        return SentenceTransformer("all-MiniLM-L6-v2")
+    except Exception:
+        return None
 
 
 def _ensure_nltk_data() -> None:
@@ -116,6 +149,22 @@ def _safe_similarity(cleaned_resume: str, cleaned_jd: str) -> float:
     return float(cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0])
 
 
+def _safe_semantic_similarity(resume_text: str, job_description_text: str) -> tuple[float | None, bool]:
+    if not resume_text.strip() or not job_description_text.strip():
+        return None, False
+
+    model = _load_sentence_transformer_model()
+    if model is None:
+        return None, False
+
+    try:
+        embeddings = model.encode([resume_text, job_description_text], normalize_embeddings=True)
+        similarity = float(cosine_similarity([embeddings[0]], [embeddings[1]])[0][0])
+        return similarity, True
+    except Exception:
+        return None, False
+
+
 def _extract_keywords(cleaned_jd: str, cleaned_resume: str) -> tuple[list[str], list[str], list[str]]:
     if not cleaned_resume.strip() or not cleaned_jd.strip():
         return [], [], []
@@ -137,14 +186,66 @@ def _extract_keywords(cleaned_jd: str, cleaned_resume: str) -> tuple[list[str], 
     return important_keywords, present_keywords, missing_keywords
 
 
-def _detect_sections(resume_text: str, config: Mapping[str, Any]) -> dict[str, bool]:
+def _detect_sections_with_regex(resume_text: str, config: Mapping[str, Any]) -> dict[str, bool]:
     section_patterns = _compile_patterns(config)
-    sections: dict[str, bool] = {}
+    return {section_name: bool(pattern.search(resume_text)) for section_name, pattern in section_patterns.items()}
 
-    for section_name, pattern in section_patterns.items():
-        sections[section_name] = bool(pattern.search(resume_text))
+
+def _detect_sections_with_spacy(resume_text: str, config: Mapping[str, Any]) -> dict[str, bool] | None:
+    nlp = _load_spacy_nlp()
+    if nlp is None:
+        return None
+
+    sections = _detect_sections_with_regex(resume_text, config)
+    doc = nlp(resume_text)
+    entity_labels = {ent.label_.upper() for ent in getattr(doc, "ents", [])}
+    cleaned_resume = _clean_text(resume_text)
+    lower_resume = resume_text.lower()
+
+    section_headers = config.get("section_headers", {})
+    education_keywords = section_headers.get("Education", [])
+    experience_keywords = section_headers.get("Experience", [])
+    contact_keywords = section_headers.get("Contact Info", [])
+    skills_keywords = section_headers.get("Skills", [])
+    action_verbs = config.get("action_verbs", [])
+
+    # TF-IDF remains the default because it is fast and deterministic.
+    # Semantic and NER signals are layered on top so you can compare them without losing the old path.
+    if not sections.get("Contact Info"):
+        email_like = re.search(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b", resume_text)
+        phone_like = re.search(r"(?:\+?\d[\d\s().-]{7,}\d)", resume_text)
+        sections["Contact Info"] = bool(email_like or phone_like or any(keyword in lower_resume for keyword in contact_keywords))
+
+    if not sections.get("Education"):
+        education_signal = any(keyword in lower_resume for keyword in education_keywords) or bool(
+            re.search(r"\b(bsc|msc|phd|ba|bs|associate|bachelor|master)\b", lower_resume)
+        )
+        sections["Education"] = bool(
+            education_signal
+            and entity_labels.intersection({"ORG", "DATE", "GPE"})
+        )
+
+    if not sections.get("Experience"):
+        experience_signal = any(keyword in lower_resume for keyword in experience_keywords) or any(
+            verb in cleaned_resume for verb in action_verbs
+        )
+        sections["Experience"] = bool(
+            experience_signal
+            and entity_labels.intersection({"ORG", "DATE", "GPE"})
+        )
+
+    if not sections.get("Skills"):
+        sections["Skills"] = bool(any(keyword in cleaned_resume for keyword in skills_keywords))
 
     return sections
+
+
+def _detect_sections(resume_text: str, config: Mapping[str, Any]) -> dict[str, bool]:
+    spacy_sections = _detect_sections_with_spacy(resume_text, config)
+    if spacy_sections is not None:
+        return spacy_sections
+
+    return _detect_sections_with_regex(resume_text, config)
 
 
 def _count_action_verbs(cleaned_resume: str, config: Mapping[str, Any]) -> list[str]:
@@ -194,12 +295,21 @@ def analyze_resume(
     resume_text: str,
     job_description_text: str,
     config: Mapping[str, Any],
+    similarity_mode: str = "tfidf",
 ) -> ResumeAnalysisResult:
+    normalized_mode = similarity_mode.lower().strip()
+    if normalized_mode not in {"tfidf", "semantic"}:
+        normalized_mode = "tfidf"
+
     if not resume_text or not job_description_text:
         return ResumeAnalysisResult(
+            similarity_mode=normalized_mode,
             similarity_score=0.0,
             word_count=0,
             readability=0.0,
+            tfidf_similarity_score=0.0,
+            semantic_similarity_score=None,
+            semantic_similarity_available=False,
         )
 
     _ensure_nltk_data()
@@ -215,7 +325,13 @@ def analyze_resume(
     readability = 100 - (avg_word_len * 10) - (word_count / sentence_count * 1.0)
     readability = max(0.0, min(100.0, readability))
 
-    similarity_score = _safe_similarity(cleaned_resume, cleaned_jd)
+    tfidf_similarity_score = _safe_similarity(cleaned_resume, cleaned_jd)
+    semantic_similarity_score, semantic_similarity_available = _safe_semantic_similarity(resume_text, job_description_text)
+
+    if semantic_similarity_score is None:
+        semantic_similarity_score = tfidf_similarity_score
+
+    similarity_score = semantic_similarity_score if normalized_mode == "semantic" else tfidf_similarity_score
     jd_keywords, present_keywords, missing_keywords = _extract_keywords(cleaned_jd, cleaned_resume)
     sections = _detect_sections(resume_text, config)
     action_verbs = _count_action_verbs(cleaned_resume, config)
@@ -230,7 +346,11 @@ def analyze_resume(
     )
 
     return ResumeAnalysisResult(
+        similarity_mode=normalized_mode,
         similarity_score=similarity_score,
+        tfidf_similarity_score=tfidf_similarity_score,
+        semantic_similarity_score=semantic_similarity_score,
+        semantic_similarity_available=semantic_similarity_available,
         word_count=word_count,
         readability=readability,
         jd_keywords=jd_keywords,
@@ -248,6 +368,7 @@ class ResumeAnalyser:
         self.config = load_analysis_config(config_path)
         self.resume_text = ""
         self.job_description = ""
+        self.similarity_mode = "tfidf"
         self.results = ResumeAnalysisResult(similarity_score=0.0, word_count=0, readability=0.0)
         self.job_roles = self.config.get("job_roles", {})
 
@@ -258,10 +379,24 @@ class ResumeAnalyser:
     def set_job_description(self, text: str) -> None:
         self.job_description = text
 
+    def set_similarity_mode(self, mode: str) -> None:
+        normalized_mode = mode.lower().strip()
+        self.similarity_mode = normalized_mode if normalized_mode in {"tfidf", "semantic"} else "tfidf"
+
     def analyze(self) -> dict[str, Any]:
-        self.results = analyze_resume(self.resume_text, self.job_description, self.config)
+        self.results = analyze_resume(
+            self.resume_text,
+            self.job_description,
+            self.config,
+            similarity_mode=self.similarity_mode,
+        )
         return asdict(self.results)
 
     def generate_recommendations(self, similarity, missing_keywords, sections):
-        self.results = analyze_resume(self.resume_text, self.job_description, self.config)
+        self.results = analyze_resume(
+            self.resume_text,
+            self.job_description,
+            self.config,
+            similarity_mode=self.similarity_mode,
+        )
         return self.results.suggestions

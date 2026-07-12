@@ -10,3 +10,6 @@ Pillow
 sv-ttk
 ttkthemes
 pytest
+# Optional NLP enhancements for phase 2
+sentence-transformers
+spacy

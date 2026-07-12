@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pytest
 
+import app.logic.analyser as analyser_module
+
 from app.logic.analyser import (
     ResumeAnalysisResult,
     ResumeAnalyser,
@@ -81,6 +83,55 @@ def test_keyword_extraction_edge_cases(analysis_config):
     assert result.jd_keywords == []
     assert result.present_keywords == []
     assert result.missing_keywords == []
+
+
+def test_similarity_mode_toggle_preserves_both_scores(analysis_config, monkeypatch):
+    monkeypatch.setattr(analyser_module, "_safe_semantic_similarity", lambda *args, **kwargs: (0.91, True))
+
+    resume_text = "Data analyst with Python, SQL, Tableau, and dashboards."
+    job_description = "Looking for Python SQL Tableau analytics experience."
+
+    tfidf_result = analyze_resume(resume_text, job_description, analysis_config)
+    semantic_result = analyze_resume(resume_text, job_description, analysis_config, similarity_mode="semantic")
+
+    assert tfidf_result.similarity_mode == "tfidf"
+    assert tfidf_result.similarity_score == tfidf_result.tfidf_similarity_score
+    assert semantic_result.similarity_mode == "semantic"
+    assert semantic_result.similarity_score == pytest.approx(0.91)
+    assert semantic_result.semantic_similarity_available is True
+    assert semantic_result.semantic_similarity_score == pytest.approx(0.91)
+
+
+def test_spacy_section_detection_uses_fallback_when_unavailable(analysis_config, monkeypatch):
+    monkeypatch.setattr(analyser_module, "_load_spacy_nlp", lambda: None)
+
+    resume_text = "Jane Doe\nEmail: jane@example.com\nSkills: Python, SQL\n"
+    result = analyze_resume(resume_text, "Looking for data analysis and dashboards", analysis_config)
+
+    assert result.sections["Contact Info"] is True
+    assert result.sections["Skills"] is True
+
+
+def test_spacy_section_detection_infers_sections_from_entities(analysis_config, monkeypatch):
+    class FakeDoc:
+        def __init__(self, ents):
+            self.ents = ents
+
+    class FakeEnt:
+        def __init__(self, label_):
+            self.label_ = label_
+
+    class FakeNlp:
+        def __call__(self, text):
+            return FakeDoc([FakeEnt("ORG"), FakeEnt("DATE")])
+
+    monkeypatch.setattr(analyser_module, "_load_spacy_nlp", lambda: FakeNlp())
+
+    resume_text = "BSc Computer Science at University of Toronto\nDeveloped APIs at Example Corp in 2024\n"
+    result = analyze_resume(resume_text, "python api development", analysis_config)
+
+    assert result.sections["Education"] is True
+    assert result.sections["Experience"] is True
 
 
 @pytest.mark.parametrize(

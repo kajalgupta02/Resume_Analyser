@@ -75,6 +75,24 @@ class UploadPage(ctk.CTkFrame):
                                              corner_radius=10,
                                              command=self.on_role_select)
         self.role_dropdown.pack(fill="x", padx=25, pady=(0, 15))
+
+        ctk.CTkLabel(self.right_col, text="Similarity Mode", font=("Arial", 14, "bold"), text_color="#4cc9f0").pack(anchor="w", padx=25, pady=(4, 4))
+        self.similarity_mode_var = ctk.StringVar(value="TF-IDF")
+        self.similarity_mode_map = {
+            "TF-IDF": "tfidf",
+            "Semantic": "semantic",
+        }
+        self.similarity_mode_dropdown = ctk.CTkOptionMenu(
+            self.right_col,
+            values=list(self.similarity_mode_map.keys()),
+            variable=self.similarity_mode_var,
+            fg_color="#4361ee",
+            button_color="#4361ee",
+            height=40,
+            corner_radius=10,
+            command=self.on_similarity_mode_select,
+        )
+        self.similarity_mode_dropdown.pack(fill="x", padx=25, pady=(0, 10))
         
         self.jd_text = ctk.CTkTextbox(self.right_col, height=140, corner_radius=20, border_width=1, border_color="gray30")
         self.jd_text.pack(pady=10, padx=25, fill="both", expand=True)
@@ -123,6 +141,9 @@ class UploadPage(ctk.CTkFrame):
             self.jd_text.delete("0.0", "end")
             self.jd_text.insert("0.0", f"Keywords for {role}:\n{keywords}")
 
+    def on_similarity_mode_select(self, label):
+        self.app.analyser.set_similarity_mode(self.similarity_mode_map.get(label, "tfidf"))
+
     def run_analysis(self):
         if not self.app.resume_path:
             messagebox.showerror("Hold Up!", "You forgot to upload your resume. Let's not get ahead of ourselves.")
@@ -140,6 +161,7 @@ class UploadPage(ctk.CTkFrame):
             try:
                 self.app.analyser.load_resume(self.app.resume_path)
                 self.app.analyser.set_job_description(job_description)
+                self.app.analyser.set_similarity_mode(self.similarity_mode_map.get(self.similarity_mode_var.get(), "tfidf"))
                 self.app.analysis_results = self.app.analyser.analyze()
                 
                 # Switch back to main thread to update UI
@@ -166,5 +188,7 @@ class UploadPage(ctk.CTkFrame):
         self.upload_label.configure(text="Drop your resume here\nor click to browse", text_color="gray")
         self.browse_button.configure(text="Browse Files")
         self.role_var.set("Pick a dream role...")
+        self.similarity_mode_var.set("TF-IDF")
+        self.app.analyser.set_similarity_mode("tfidf")
         self.jd_text.delete("0.0", "end")
         self.jd_text.insert("0.0", "Or paste the job description here...")
