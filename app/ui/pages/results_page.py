@@ -167,6 +167,54 @@ class ResultsPage(ctk.CTkFrame):
 
             ctk.CTkLabel(suggestions_frame, text="").pack()
 
+        llm_feedback_enabled = bool(results.get('llm_feedback_enabled', False))
+        llm_feedback = results.get('llm_feedback', [])
+        llm_feedback_error = results.get('llm_feedback_error')
+        llm_feedback_cached = bool(results.get('llm_feedback_cached', False))
+        llm_feedback_model = results.get('llm_feedback_model')
+
+        if llm_feedback_enabled and (llm_feedback or llm_feedback_error):
+            feedback_frame = ctk.CTkFrame(self.scrollable_frame, corner_radius=15, border_width=1, border_color="#2ec4b6")
+            feedback_frame.pack(fill="x", pady=10)
+
+            title_row = ctk.CTkFrame(feedback_frame, fg_color="transparent")
+            title_row.pack(fill="x", pady=(15, 6), padx=20)
+            ctk.CTkLabel(title_row, text="Optional AI Feedback", font=("Arial", 20, "bold"), text_color="#2ec4b6").pack(side="left")
+
+            status_bits = []
+            if llm_feedback_model:
+                status_bits.append(str(llm_feedback_model))
+            if llm_feedback_cached:
+                status_bits.append("cached")
+            if status_bits:
+                ctk.CTkLabel(title_row, text=" · ".join(status_bits), font=("Arial", 12, "bold"), text_color="gray70").pack(side="right")
+
+            if llm_feedback:
+                ctk.CTkLabel(
+                    feedback_frame,
+                    text="These notes are additive to the deterministic suggestions above.",
+                    font=("Arial", 13),
+                    text_color="gray70",
+                ).pack(anchor="w", padx=20, pady=(0, 10))
+
+                for suggestion in llm_feedback:
+                    ctk.CTkLabel(feedback_frame, text=f"• {suggestion}", font=("Arial", 14), wraplength=750, justify="left").pack(anchor="w", padx=25, pady=5)
+
+            if llm_feedback_error and not llm_feedback:
+                ctk.CTkLabel(
+                    feedback_frame,
+                    text="AI feedback was enabled, but no suggestions came back for this input.",
+                    font=("Arial", 13),
+                    text_color="gray70",
+                ).pack(anchor="w", padx=20, pady=(0, 6))
+                ctk.CTkLabel(
+                    feedback_frame,
+                    text=str(llm_feedback_error),
+                    font=("Arial", 12),
+                    wraplength=750,
+                    justify="left",
+                ).pack(anchor="w", padx=20, pady=(0, 14))
+
         save_button = ctk.CTkButton(self.scrollable_frame, text="Save to History", command=self.save_report, height=42, font=("Arial", 16, "bold"))
         save_button.pack(pady=(20, 0), padx=20, fill="x")
 

@@ -102,6 +102,53 @@ def test_similarity_mode_toggle_preserves_both_scores(analysis_config, monkeypat
     assert semantic_result.semantic_similarity_score == pytest.approx(0.91)
 
 
+def test_llm_feedback_is_disabled_by_default(analysis_config, monkeypatch, tmp_path):
+    monkeypatch.delenv("RESUME_ANALYSER_LLM_ENABLED", raising=False)
+    monkeypatch.delenv("RESUME_ANALYSER_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(analyser_module, "DEFAULT_LLM_CACHE_PATH", tmp_path / "feedback_cache.json")
+
+    analyser = ResumeAnalyser()
+    analyser.resume_text = "- Led a dashboard migration that improved reporting speed by 32%"
+    analyser.job_description = "Need python sql analytics dashboard experience"
+
+    result = analyser.analyze()
+
+    assert result["llm_feedback_enabled"] is False
+    assert result["llm_feedback"] == []
+
+
+def test_llm_feedback_uses_cache_for_unchanged_input(analysis_config, monkeypatch, tmp_path):
+    cache_path = tmp_path / "feedback_cache.json"
+    service = analyser_module.LLMFeedbackService(
+        analyser_module.LLMFeedbackConfig(
+            enabled=True,
+            api_key="test-key",
+            cache_path=cache_path,
+        )
+    )
+
+    call_count = {"count": 0}
+
+    def fake_request_feedback(resume_bullets, job_description_text):
+        call_count["count"] += 1
+        return ["Rewrite the bullet with a stronger outcome."]
+
+    monkeypatch.setattr(service, "_request_feedback", fake_request_feedback)
+
+    resume_text = "- Led a dashboard migration that improved reporting speed by 32%"
+    job_description = "Need python sql analytics dashboard experience"
+
+    first_result = service.get_feedback(resume_text, job_description, analysis_config)
+    second_result = service.get_feedback(resume_text, job_description, analysis_config)
+
+    assert first_result.suggestions == ["Rewrite the bullet with a stronger outcome."]
+    assert second_result.suggestions == ["Rewrite the bullet with a stronger outcome."]
+    assert first_result.cached is False
+    assert second_result.cached is True
+    assert call_count["count"] == 1
+
+
 def test_spacy_section_detection_uses_fallback_when_unavailable(analysis_config, monkeypatch):
     monkeypatch.setattr(analyser_module, "_load_spacy_nlp", lambda: None)
 

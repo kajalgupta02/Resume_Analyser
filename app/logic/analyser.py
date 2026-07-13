@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 import fitz  # PyMuPDF
 import nltk
@@ -16,6 +19,25 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 
 DEFAULT_CONFIG_PATH = Path(__file__).with_name("analysis_config.json")
+DEFAULT_LLM_CACHE_PATH = Path(__file__).resolve().parents[2] / "resume_llm_feedback_cache.json"
+DEFAULT_LLM_ENDPOINT = "https://api.openai.com/v1/chat/completions"
+DEFAULT_LLM_MODEL = "gpt-4o-mini"
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _truncate_text(text: str, limit: int = 900) -> str:
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+
+    return text[: limit - 3].rstrip() + "..."
 
 
 @dataclass(slots=True)
@@ -34,10 +56,276 @@ class ResumeAnalysisResult:
     quantifiable_metrics: int = 0
     sections: dict[str, bool] = field(default_factory=dict)
     suggestions: list[str] = field(default_factory=list)
+    llm_feedback: list[str] = field(default_factory=list)
+    llm_feedback_enabled: bool = False
+    llm_feedback_cached: bool = False
+    llm_feedback_error: str | None = None
+    llm_feedback_model: str | None = None
+
+
+@dataclass(slots=True)
+class LLMFeedbackConfig:
+    enabled: bool
+    api_key: str
+    endpoint: str = DEFAULT_LLM_ENDPOINT
+    model: str = DEFAULT_LLM_MODEL
+    cache_path: Path = DEFAULT_LLM_CACHE_PATH
+    timeout_seconds: float = 20.0
+    max_suggestions: int = 4
+    prompt_version: str = "phase3-v1"
+
+
+@dataclass(slots=True)
+class LLMFeedbackResult:
+    suggestions: list[str] = field(default_factory=list)
+    cached: bool = False
+    enabled: bool = False
+    error_message: str | None = None
+    model: str | None = None
 
 
 def _normalize_path(path: str | os.PathLike[str]) -> Path:
     return Path(path).expanduser().resolve()
+
+
+def _normalize_llm_suggestions(suggestions: list[str]) -> list[str]:
+    cleaned_suggestions: list[str] = []
+    seen_suggestions: set[str] = set()
+
+    for suggestion in suggestions:
+        cleaned_suggestion = suggestion.strip()
+        if not cleaned_suggestion or cleaned_suggestion in seen_suggestions:
+            continue
+
+        seen_suggestions.add(cleaned_suggestion)
+        cleaned_suggestions.append(cleaned_suggestion)
+
+    return cleaned_suggestions
+
+
+def _extract_resume_bullets(resume_text: str, action_verbs: list[str], limit: int = 8) -> list[str]:
+    bullet_pattern = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+(.*)$")
+    resume_bullets: list[str] = []
+
+    for raw_line in resume_text.splitlines():
+        stripped_line = raw_line.strip()
+        if not stripped_line:
+            continue
+
+        bullet_match = bullet_pattern.match(stripped_line)
+        if bullet_match:
+            candidate = bullet_match.group(1).strip()
+        elif len(stripped_line.split()) >= 6 and any(verb in stripped_line.lower() for verb in action_verbs):
+            candidate = stripped_line
+        else:
+            continue
+
+        if candidate and candidate not in resume_bullets:
+            resume_bullets.append(candidate)
+
+        if len(resume_bullets) >= limit:
+            return resume_bullets
+
+    if resume_bullets:
+        return resume_bullets
+
+    sentences = [segment.strip() for segment in re.split(r"(?<=[.!?])\s+", resume_text) if segment.strip()]
+    for sentence in sentences[:limit]:
+        resume_bullets.append(sentence)
+
+    return resume_bullets
+
+
+def _build_llm_cache_key(
+    resume_bullets: list[str],
+    job_description_text: str,
+    config: LLMFeedbackConfig,
+) -> str:
+    cache_payload = {
+        "endpoint": config.endpoint,
+        "model": config.model,
+        "prompt_version": config.prompt_version,
+        "resume_bullets": resume_bullets,
+        "job_description_text": job_description_text,
+        "max_suggestions": config.max_suggestions,
+    }
+    serialized_payload = json.dumps(cache_payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(serialized_payload).hexdigest()
+
+
+def _parse_llm_feedback_content(content: str, max_suggestions: int) -> list[str]:
+    content = content.strip()
+    if not content:
+        return []
+
+    try:
+        parsed_content = json.loads(content)
+    except json.JSONDecodeError:
+        parsed_content = None
+
+    suggestions: list[str] = []
+
+    if isinstance(parsed_content, dict):
+        raw_suggestions = parsed_content.get("suggestions", [])
+        if isinstance(raw_suggestions, list):
+            suggestions = [str(item) for item in raw_suggestions if str(item).strip()]
+    elif isinstance(parsed_content, list):
+        suggestions = [str(item) for item in parsed_content if str(item).strip()]
+    elif isinstance(parsed_content, str):
+        suggestions = [parsed_content]
+
+    if not suggestions:
+        suggestions = [line.lstrip("-•0123456789. )").strip() for line in content.splitlines() if line.strip()]
+
+    return _normalize_llm_suggestions(suggestions[:max_suggestions])
+
+
+class LLMFeedbackService:
+    def __init__(self, config: LLMFeedbackConfig):
+        self.config = config
+        self._cache: dict[str, dict[str, Any]] = self._load_cache()
+
+    @classmethod
+    def from_environment(cls) -> "LLMFeedbackService":
+        api_key = os.getenv("RESUME_ANALYSER_LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
+        enabled = _env_flag("RESUME_ANALYSER_LLM_ENABLED", False)
+        endpoint = os.getenv("RESUME_ANALYSER_LLM_ENDPOINT", DEFAULT_LLM_ENDPOINT).strip() or DEFAULT_LLM_ENDPOINT
+        model = os.getenv("RESUME_ANALYSER_LLM_MODEL", DEFAULT_LLM_MODEL).strip() or DEFAULT_LLM_MODEL
+
+        cache_path_value = os.getenv("RESUME_ANALYSER_LLM_CACHE_PATH")
+        cache_path = Path(cache_path_value).expanduser().resolve() if cache_path_value else DEFAULT_LLM_CACHE_PATH
+
+        timeout_seconds = float(os.getenv("RESUME_ANALYSER_LLM_TIMEOUT_SECONDS", "20"))
+        max_suggestions = max(1, int(os.getenv("RESUME_ANALYSER_LLM_MAX_SUGGESTIONS", "4")))
+
+        config = LLMFeedbackConfig(
+            enabled=enabled and bool(api_key.strip()),
+            api_key=api_key.strip(),
+            endpoint=endpoint,
+            model=model,
+            cache_path=cache_path,
+            timeout_seconds=timeout_seconds,
+            max_suggestions=max_suggestions,
+        )
+        return cls(config)
+
+    def is_enabled(self) -> bool:
+        return self.config.enabled and bool(self.config.api_key)
+
+    def _load_cache(self) -> dict[str, dict[str, Any]]:
+        if not self.config.cache_path.exists():
+            return {}
+
+        try:
+            with self.config.cache_path.open("r", encoding="utf-8") as handle:
+                cached_data = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+        return cached_data if isinstance(cached_data, dict) else {}
+
+    def _save_cache(self) -> None:
+        try:
+            self.config.cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.config.cache_path.open("w", encoding="utf-8") as handle:
+                json.dump(self._cache, handle, indent=2, ensure_ascii=False)
+        except OSError:
+            pass
+
+    def _request_feedback(self, resume_bullets: list[str], job_description_text: str) -> list[str]:
+        bullet_text = "\n".join(f"{index + 1}. {bullet}" for index, bullet in enumerate(resume_bullets))
+        payload = {
+            "model": self.config.model,
+            "temperature": 0.2,
+            "max_tokens": 350,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a resume rewriting coach. Compare the resume bullets against the job description "
+                        "and return JSON only with a suggestions array. Each suggestion should be concise, concrete, "
+                        "and action-oriented. Focus on vague language, weak impact, missing metrics, and role-fit gaps."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Resume bullets:\n{bullet_text}\n\n"
+                        f"Job description:\n{_truncate_text(job_description_text, 2200)}\n\n"
+                        "Return JSON in this shape: {\"suggestions\": [\"...\"]}. Limit the list to the strongest edits."
+                    ),
+                },
+            ],
+        }
+
+        request = urllib_request.Request(
+            self.config.endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self.config.api_key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "ResumeAnalyser/1.0",
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib_request.urlopen(request, timeout=self.config.timeout_seconds) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+        except (urllib_error.HTTPError, urllib_error.URLError, TimeoutError, ValueError):
+            return []
+
+        content = ""
+        if isinstance(response_payload, dict):
+            choices = response_payload.get("choices", [])
+            if choices:
+                message = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
+                if isinstance(message, dict):
+                    content = str(message.get("content", ""))
+
+            if not content:
+                content = str(response_payload.get("content", ""))
+
+        return _parse_llm_feedback_content(content, self.config.max_suggestions)
+
+    def get_feedback(self, resume_text: str, job_description_text: str, config: Mapping[str, Any]) -> LLMFeedbackResult:
+        if not self.is_enabled() or not resume_text.strip() or not job_description_text.strip():
+            return LLMFeedbackResult(enabled=self.is_enabled(), model=self.config.model)
+
+        action_verbs = list(config.get("action_verbs", []))
+        resume_bullets = _extract_resume_bullets(resume_text, action_verbs)
+        if not resume_bullets:
+            return LLMFeedbackResult(enabled=self.is_enabled(), model=self.config.model)
+
+        cache_key = _build_llm_cache_key(resume_bullets, job_description_text, self.config)
+        cached_entry = self._cache.get(cache_key)
+        if isinstance(cached_entry, dict):
+            cached_suggestions = cached_entry.get("suggestions", [])
+            if isinstance(cached_suggestions, list):
+                return LLMFeedbackResult(
+                    suggestions=_normalize_llm_suggestions([str(item) for item in cached_suggestions]),
+                    cached=True,
+                    enabled=True,
+                    model=self.config.model,
+                )
+
+        suggestions = self._request_feedback(resume_bullets, job_description_text)
+        if suggestions:
+            self._cache[cache_key] = {
+                "suggestions": suggestions,
+                "model": self.config.model,
+            }
+            self._save_cache()
+
+        return LLMFeedbackResult(
+            suggestions=suggestions,
+            cached=False,
+            enabled=True,
+            model=self.config.model,
+            error_message=None if suggestions else "No AI feedback was returned",
+        )
 
 
 @lru_cache(maxsize=4)
@@ -371,6 +659,7 @@ class ResumeAnalyser:
         self.similarity_mode = "tfidf"
         self.results = ResumeAnalysisResult(similarity_score=0.0, word_count=0, readability=0.0)
         self.job_roles = self.config.get("job_roles", {})
+        self.feedback_service = LLMFeedbackService.from_environment()
 
     def load_resume(self, file_path: str | os.PathLike[str]) -> str:
         self.resume_text = load_resume_text(file_path)
@@ -390,13 +679,14 @@ class ResumeAnalyser:
             self.config,
             similarity_mode=self.similarity_mode,
         )
+        feedback_result = self.feedback_service.get_feedback(self.resume_text, self.job_description, self.config)
+        self.results.llm_feedback = feedback_result.suggestions
+        self.results.llm_feedback_enabled = feedback_result.enabled
+        self.results.llm_feedback_cached = feedback_result.cached
+        self.results.llm_feedback_error = feedback_result.error_message
+        self.results.llm_feedback_model = feedback_result.model
         return asdict(self.results)
 
     def generate_recommendations(self, similarity, missing_keywords, sections):
-        self.results = analyze_resume(
-            self.resume_text,
-            self.job_description,
-            self.config,
-            similarity_mode=self.similarity_mode,
-        )
-        return self.results.suggestions
+        self.analyze()
+        return self.results.suggestions + self.results.llm_feedback

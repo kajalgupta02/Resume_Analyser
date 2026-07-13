@@ -66,5 +66,29 @@ class SettingsPage(ctk.CTkFrame):
                      justify="left",
                      font=("Arial", 13)).pack(pady=(0, 30), padx=30, anchor="w")
 
+        ai_frame = ctk.CTkFrame(self, corner_radius=20, border_width=1, border_color="#2ec4b6")
+        ai_frame.pack(pady=(0, 20), padx=40, fill="x")
+
+        ctk.CTkLabel(ai_frame, text="Optional AI feedback", font=("Arial", 18, "bold"), text_color="#2ec4b6").pack(pady=(20, 8), padx=30, anchor="w")
+        ctk.CTkLabel(
+            ai_frame,
+            text=(
+                "Enable the additive feedback layer by setting RESUME_ANALYSER_LLM_ENABLED=1 and providing "
+                "RESUME_ANALYSER_LLM_API_KEY or OPENAI_API_KEY. Results are cached by resume + JD so unchanged inputs "
+                "won't re-call the API."
+            ),
+            justify="left",
+            wraplength=980,
+            font=("Arial", 13),
+        ).pack(pady=(0, 12), padx=30, anchor="w")
+        ctk.CTkLabel(
+            ai_frame,
+            text="No key set means the app behaves exactly like the current deterministic flow.",
+            justify="left",
+            wraplength=980,
+            font=("Arial", 12),
+            text_color="gray70",
+        ).pack(pady=(0, 20), padx=30, anchor="w")
+
     def change_appearance_mode(self, new_mode):
         ctk.set_appearance_mode(new_mode)
