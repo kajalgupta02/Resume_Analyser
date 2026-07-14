@@ -1,10 +1,15 @@
 import json
 import os
 from datetime import datetime
+from pathlib import Path
+from uuid import uuid4
+
+
+DEFAULT_HISTORY_FILE = Path(__file__).resolve().parents[3] / "resume_analysis_history.json"
 
 class HistoryManager:
-    def __init__(self, history_file='resume_analysis_history.json'):
-        self.history_file = history_file
+    def __init__(self, history_file=DEFAULT_HISTORY_FILE):
+        self.history_file = Path(history_file)
         self.history = self._load_history()
 
     def _load_history(self):
@@ -17,6 +22,7 @@ class HistoryManager:
         return []
 
     def _save_history(self):
+        self.history_file.parent.mkdir(parents=True, exist_ok=True)
         with open(self.history_file, 'w') as f:
             json.dump(self.history, f, indent=4)
 
@@ -25,12 +31,13 @@ class HistoryManager:
             return
         
         entry = {
-            'id': datetime.now().strftime('%Y%m%d%H%M%S'),
+            'id': uuid4().hex,
             'date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'results': analysis_result
         }
         self.history.insert(0, entry)
         self._save_history()
+        return entry
 
     def get_history(self):
         return self.history
