@@ -1,10 +1,12 @@
 from fastapi.testclient import TestClient
 
+import app.logic.history_manager as history_manager_module
 from app.api.main import create_app
 from app.api.service import ResumeAnalysisService
 
 
-def test_upload_analyze_and_fetch_history(tmp_path):
+def test_upload_analyze_and_fetch_history(tmp_path, monkeypatch):
+    monkeypatch.setattr(history_manager_module, "LEGACY_HISTORY_JSON", tmp_path / "missing.json")
     service = ResumeAnalysisService(history_file=tmp_path / "history.json")
     client = TestClient(create_app(service=service))
 
@@ -42,7 +44,8 @@ def test_upload_analyze_and_fetch_history(tmp_path):
     assert len(history.json()["reports"]) == 1
 
 
-def test_missing_report_returns_404(tmp_path):
+def test_missing_report_returns_404(tmp_path, monkeypatch):
+    monkeypatch.setattr(history_manager_module, "LEGACY_HISTORY_JSON", tmp_path / "missing.json")
     service = ResumeAnalysisService(history_file=tmp_path / "history.json")
     client = TestClient(create_app(service=service))
 
