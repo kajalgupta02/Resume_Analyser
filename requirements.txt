@@ -1,0 +1,18 @@
+customtkinter
+scikit-learn
+numpy
+matplotlib
+python-docx
+PyMuPDF
+nltk
+textblob
+Pillow
+sv-ttk
+ttkthemes
+pytest
+fastapi
+python-multipart
+uvicorn
+# Optional NLP enhancements for phase 2
+sentence-transformers
+spacy
