@@ -1,170 +1,265 @@
+# -*- coding: utf-8 -*-
 import customtkinter as ctk
-
 from tkinter import filedialog, messagebox
 import os
-
 import threading
+from ...logic.sample_data import SAMPLE_JOB_DESCRIPTIONS
 
 class UploadPage(ctk.CTkFrame):
     def __init__(self, parent, app):
-        super().__init__(parent)
+        super().__init__(parent, fg_color="#070B14")
         self.app = app
         
-        # Sassy Header
-        self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.header_frame.pack(fill="x", padx=40, pady=(40, 20))
+        # Scrollable container for responsive layout
+        self.main_scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.main_scroll.pack(fill="both", expand=True)
+        self.main_scroll.grid_columnconfigure(0, weight=1)
         
-        ctk.CTkLabel(self.header_frame, 
-                     text="Let's Get Analyzing. 🔍", 
-                     font=("Arial", 32, "bold"),
-                     text_color="#4cc9f0").pack(side="left")
+        # Header
+        self.header_frame = ctk.CTkFrame(self.main_scroll, fg_color="transparent")
+        self.header_frame.pack(fill="x", padx=45, pady=(32, 18))
         
-        ctk.CTkLabel(self, 
-                     text="Upload your resume and tell us what job you're eyeing. We'll handle the rest.",
-                     font=("Arial", 16)).pack(anchor="w", padx=40, pady=(0, 30))
+        ctk.CTkLabel(
+            self.header_frame, 
+            text="Analyze Your Resume", 
+            font=("Arial", 28, "bold"), 
+            text_color="#FFFFFF"
+        ).pack(anchor="w")
         
-        # Main Layout: Two columns
-        self.content_grid = ctk.CTkFrame(self, fg_color="transparent")
-        self.content_grid.pack(fill="both", expand=True, padx=40)
-        self.content_grid.grid_columnconfigure((0, 1), weight=1)
+        ctk.CTkLabel(
+            self.header_frame, 
+            text="Upload your resume and add a job description to receive clear, role-specific improvement suggestions.", 
+            font=("Arial", 14), 
+            text_color="#94A3B8"
+        ).pack(anchor="w", pady=(4, 0))
+        
+        # 3-Column Steps Layout
+        self.content_grid = ctk.CTkFrame(self.main_scroll, fg_color="transparent")
+        self.content_grid.pack(fill="both", expand=True, padx=45, pady=(0, 30))
+        self.content_grid.grid_columnconfigure((0, 1, 2), weight=1, uniform="steps")
         self.content_grid.grid_rowconfigure(0, weight=1)
         
-        # Left Column: Upload
-        self.left_col = ctk.CTkFrame(self.content_grid, corner_radius=20, border_width=1, border_color="#4361ee")
-        self.left_col.grid(row=0, column=0, padx=(0, 15), sticky="nsew")
-        
-        ctk.CTkLabel(self.left_col, text="1. The Goods 📄", font=("Arial", 22, "bold"), text_color="#4cc9f0").pack(pady=20)
-        
-        self.upload_area = ctk.CTkFrame(self.left_col, height=200, fg_color=("gray90", "gray15"), corner_radius=20, border_width=0)
-        self.upload_area.pack(pady=10, padx=25, fill="x")
-        self.upload_area.pack_propagate(False)
-        
-        # Hover effects for upload area
-        self.upload_area.bind("<Enter>", lambda e: self.upload_area.configure(border_width=2, border_color="#4cc9f0"))
-        self.upload_area.bind("<Leave>", lambda e: self.upload_area.configure(border_width=0))
-        
-        self.upload_label = ctk.CTkLabel(self.upload_area, 
-                                        text="Drop your resume here\nor click to browse",
-                                        font=("Arial", 14),
-                                        text_color="gray")
-        self.upload_label.place(relx=0.5, rely=0.4, anchor="center")
-        
-        self.browse_button = ctk.CTkButton(self.upload_area, 
-                                          text="Browse Files", 
-                                          fg_color="#4cc9f0",
-                                          hover_color="#4361ee",
-                                          text_color="black",
-                                          font=("Arial", 13, "bold"),
-                                          command=self.browse_files)
-        self.browse_button.place(relx=0.5, rely=0.7, anchor="center")
-        
-        # Right Column: JD
-        self.right_col = ctk.CTkFrame(self.content_grid, corner_radius=20, border_width=1, border_color="#4361ee")
-        self.right_col.grid(row=0, column=1, padx=(15, 0), sticky="nsew")
-        
-        ctk.CTkLabel(self.right_col, text="2. The Goal 🎯", font=("Arial", 22, "bold"), text_color="#4cc9f0").pack(pady=20)
-        
-        # Role selection
-        self.role_var = ctk.StringVar(value="Pick a dream role...")
-        self.role_dropdown = ctk.CTkOptionMenu(self.right_col, 
-                                             values=list(self.app.analyser.job_roles.keys()),
-                                             variable=self.role_var,
-                                             fg_color="#4361ee",
-                                             button_color="#4361ee",
-                                             height=40,
-                                             corner_radius=10,
-                                             command=self.on_role_select)
-        self.role_dropdown.pack(fill="x", padx=25, pady=(0, 15))
+        self._create_step1_upload()
+        self._create_step2_job_desc()
+        self._create_step3_review()
 
-        ctk.CTkLabel(self.right_col, text="Similarity Mode", font=("Arial", 14, "bold"), text_color="#4cc9f0").pack(anchor="w", padx=25, pady=(4, 4))
-        self.similarity_mode_var = ctk.StringVar(value="TF-IDF")
-        self.similarity_mode_map = {
-            "TF-IDF": "tfidf",
-            "Semantic": "semantic",
-        }
-        self.similarity_mode_dropdown = ctk.CTkOptionMenu(
-            self.right_col,
-            values=list(self.similarity_mode_map.keys()),
-            variable=self.similarity_mode_var,
-            fg_color="#4361ee",
-            button_color="#4361ee",
-            height=40,
-            corner_radius=10,
-            command=self.on_similarity_mode_select,
+    def _create_step_header(self, parent, num, title, subtitle):
+        header = ctk.CTkFrame(parent, fg_color="transparent")
+        header.pack(fill="x", padx=20, pady=(20, 6))
+        
+        circle = ctk.CTkFrame(header, width=28, height=28, corner_radius=14, fg_color="#2563EB")
+        circle.pack(side="left")
+        circle.pack_propagate(False)
+        ctk.CTkLabel(circle, text=num, font=("Arial", 12, "bold"), text_color="#FFFFFF").place(relx=0.5, rely=0.5, anchor="center")
+        
+        ctk.CTkLabel(header, text=title, font=("Arial", 15, "bold"), text_color="#FFFFFF").pack(side="left", padx=10)
+        
+        if subtitle:
+            ctk.CTkLabel(parent, text=subtitle, font=("Arial", 12), text_color="#94A3B8", justify="left").pack(anchor="w", padx=24, pady=(0, 12))
+
+    def _create_step1_upload(self):
+        # Column 1: Resume Upload
+        self.col1 = ctk.CTkFrame(self.content_grid, fg_color="#111827", corner_radius=14, border_width=1, border_color="#1F2937")
+        self.col1.grid(row=0, column=0, padx=(0, 10), sticky="nsew")
+        
+        self._create_step_header(self.col1, "1", "Upload Your Resume", "Upload your resume in PDF, DOCX, or TXT format.")
+        
+        # Upload Box Area
+        self.upload_area = ctk.CTkFrame(self.col1, fg_color="#1A2234", corner_radius=12, border_width=2, border_color="#2A374F")
+        self.upload_area.pack(pady=(0, 16), padx=20, fill="both", expand=True)
+        
+        self.upload_icon = ctk.CTkLabel(self.upload_area, text="\u2601", font=("Arial", 42), text_color="#38BDF8")
+        self.upload_icon.place(relx=0.5, rely=0.32, anchor="center")
+        
+        self.upload_label = ctk.CTkLabel(
+            self.upload_area, 
+            text="Drag & drop your file here\nor", 
+            font=("Arial", 13), 
+            text_color="#94A3B8"
         )
-        self.similarity_mode_dropdown.pack(fill="x", padx=25, pady=(0, 10))
+        self.upload_label.place(relx=0.5, rely=0.54, anchor="center")
         
-        self.jd_text = ctk.CTkTextbox(self.right_col, height=140, corner_radius=20, border_width=1, border_color="gray30")
-        self.jd_text.pack(pady=10, padx=25, fill="both", expand=True)
-        self.jd_text.insert("0.0", "Or paste the job description here...")
+        self.browse_button = ctk.CTkButton(
+            self.upload_area, 
+            text="Choose Resume", 
+            fg_color="#2563EB", 
+            hover_color="#1D4ED8", 
+            text_color="#FFFFFF",
+            font=("Arial", 13, "bold"), 
+            corner_radius=8,
+            height=36,
+            command=self.browse_files
+        )
+        self.browse_button.place(relx=0.5, rely=0.76, anchor="center")
         
-        # Footer Action
-        self.right_col.grid_rowconfigure(2, weight=1) # Push button down
+        # Selected File Status Box
+        self.file_status_frame = ctk.CTkFrame(self.col1, fg_color="#1A2234", corner_radius=8, border_width=1, border_color="#2A374F")
+        self.file_status_frame.pack(fill="x", padx=20, pady=(0, 14))
         
-        self.action_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.action_frame.pack(pady=(20, 40), fill="x", padx=40)
+        self.file_name_label = ctk.CTkLabel(
+            self.file_status_frame, 
+            text="No file selected yet", 
+            font=("Arial", 12), 
+            text_color="#94A3B8"
+        )
+        self.file_name_label.pack(side="left", padx=12, pady=10)
+        
+        self.change_file_btn = ctk.CTkButton(
+            self.file_status_frame, 
+            text="Change", 
+            fg_color="transparent", 
+            border_width=1, 
+            border_color="#334155", 
+            hover_color="#1E293B", 
+            text_color="#FFFFFF",
+            width=70, 
+            height=28,
+            font=("Arial", 11),
+            command=self.browse_files
+        )
+        self.change_file_btn.pack(side="right", padx=10, pady=8)
+        self.change_file_btn.pack_forget() # hide until file is picked
+        
+        # Supported format footer
+        ctk.CTkLabel(
+            self.col1, 
+            text="Supported formats: PDF, DOCX, TXT", 
+            font=("Arial", 11), 
+            text_color="#64748B"
+        ).pack(anchor="w", padx=20, pady=(0, 16))
 
-        ctk.CTkLabel(self.action_frame, text="3. The Magic Moment ✨", font=("Arial", 22, "bold"), text_color="#4cc9f0").pack(pady=(0, 20))
+    def _create_step2_job_desc(self):
+        # Column 2: Job Description
+        self.col2 = ctk.CTkFrame(self.content_grid, fg_color="#111827", corner_radius=14, border_width=1, border_color="#1F2937")
+        self.col2.grid(row=0, column=1, padx=10, sticky="nsew")
+        
+        self._create_step_header(self.col2, "2", "Add a Job Description", "Choose a sample role (optional)")
+        
+        # Sample Role Dropdown
+        roles_list = ["Select a role..."] + list(SAMPLE_JOB_DESCRIPTIONS.keys())
+        self.role_var = ctk.StringVar(value="Select a role...")
+        self.role_dropdown = ctk.CTkOptionMenu(
+            self.col2, 
+            values=roles_list,
+            variable=self.role_var,
+            fg_color="#1E293B", 
+            button_color="#2563EB", 
+            button_hover_color="#1D4ED8", 
+            dropdown_fg_color="#1E293B",
+            text_color="#FFFFFF",
+            height=38, 
+            corner_radius=8,
+            font=("Arial", 13),
+            command=self.on_role_select
+        )
+        self.role_dropdown.pack(fill="x", padx=20, pady=(0, 12))
+        
+        ctk.CTkLabel(
+            self.col2, 
+            text="Job Description Text", 
+            font=("Arial", 13, "bold"), 
+            text_color="#FFFFFF"
+        ).pack(anchor="w", padx=20, pady=(0, 6))
+        
+        # Textbox for Job Description
+        self.jd_text = ctk.CTkTextbox(
+            self.col2, 
+            fg_color="#1A2234", 
+            corner_radius=8, 
+            border_width=1, 
+            border_color="#2A374F",
+            text_color="#E2E8F0",
+            font=("Arial", 12)
+        )
+        self.jd_text.pack(pady=(0, 18), padx=20, fill="both", expand=True)
+        self.jd_text.insert("0.0", "Paste the job description here or choose a sample role above...")
 
-        self.analyze_button = ctk.CTkButton(self.action_frame, 
-                                          text="WORK YOUR MAGIC ✨", 
-                                          height=70,
-                                          width=500,
-                                          fg_color="#4cc9f0",
-                                          hover_color="#4361ee",
-                                          text_color="#000000",
-                                          font=("Arial", 20, "bold"),
-                                          corner_radius=35,
-                                          command=self.run_analysis)
-        self.analyze_button.pack()
-
-        self.loading_bar = ctk.CTkProgressBar(self.action_frame, width=500, mode="indeterminate", 
-                                             progress_color="#4cc9f0", height=10, corner_radius=5)
-        self.loading_bar.pack(pady=15)
+    def _create_step3_review(self):
+        # Column 3: Review and Action
+        self.col3 = ctk.CTkFrame(self.content_grid, fg_color="#111827", corner_radius=14, border_width=1, border_color="#1F2937")
+        self.col3.grid(row=0, column=2, padx=(10, 0), sticky="nsew")
+        
+        self._create_step_header(self.col3, "3", "Review Your Results", "Click the button below to\nstart analyzing your resume.")
+        
+        # Stylized Review Graphic in center
+        self.review_center = ctk.CTkFrame(self.col3, fg_color="transparent")
+        self.review_center.pack(fill="both", expand=True, padx=20, pady=10)
+        
+        # Icon Badge Frame
+        icon_card = ctk.CTkFrame(self.review_center, fg_color="#1A2234", corner_radius=16, border_width=1, border_color="#2A374F")
+        icon_card.place(relx=0.5, rely=0.42, anchor="center", relwidth=0.85, relheight=0.7)
+        
+        doc_symbol = ctk.CTkLabel(icon_card, text="\u25A4", font=("Arial", 46), text_color="#38BDF8")
+        doc_symbol.place(relx=0.45, rely=0.4, anchor="center")
+        
+        mag_symbol = ctk.CTkLabel(icon_card, text="\u2315", font=("Arial", 36, "bold"), text_color="#60A5FA")
+        mag_symbol.place(relx=0.62, rely=0.58, anchor="center")
+        
+        sparkle = ctk.CTkLabel(icon_card, text="\u2726", font=("Arial", 18), text_color="#F59E0B")
+        sparkle.place(relx=0.25, rely=0.25, anchor="center")
+        
+        ready_label = ctk.CTkLabel(icon_card, text="Instant ATS Score & AI Feedback", font=("Arial", 11, "bold"), text_color="#94A3B8")
+        ready_label.place(relx=0.5, rely=0.84, anchor="center")
+        
+        # Analyze CTA Button
+        self.analyze_button = ctk.CTkButton(
+            self.col3, 
+            text="Analyze Resume", 
+            height=48, 
+            fg_color="#2563EB", 
+            hover_color="#1D4ED8", 
+            text_color="#FFFFFF",
+            font=("Arial", 15, "bold"), 
+            corner_radius=10,
+            command=self.run_analysis
+        )
+        self.analyze_button.pack(fill="x", padx=20, pady=(10, 16))
+        
+        # Indeterminate Loading Bar
+        self.loading_bar = ctk.CTkProgressBar(self.col3, mode="indeterminate", progress_color="#38BDF8", height=6)
+        self.loading_bar.pack(fill="x", padx=20, pady=(0, 16))
         self.loading_bar.set(0)
-        self.loading_bar.pack_forget() # Hide initially
+        self.loading_bar.pack_forget()
 
     def browse_files(self):
         file_path = filedialog.askopenfilename(
-            title="Select your masterpiece (aka resume)",
-            filetypes=(("PDF files", "*.pdf"), ("Word files", "*.docx"), ("Text files", "*.txt"), ("All files", "*.*"))
+            title="Choose your resume",
+            filetypes=(("Supported Resumes (*.pdf;*.docx;*.txt)", "*.pdf;*.docx;*.txt"), ("PDF files", "*.pdf"), ("Word files", "*.docx"), ("Text files", "*.txt"), ("All files", "*.*"))
         )
         if file_path:
             self.app.resume_path = file_path
             filename = os.path.basename(file_path)
-            self.upload_label.configure(text=f"Selected: {filename}", text_color="#4cc9f0")
-            self.browse_button.configure(text="Change File")
+            self.file_name_label.configure(text=f"\u2714 {filename}", text_color="#34D399")
+            self.change_file_btn.pack(side="right", padx=10, pady=8)
+            self.upload_label.configure(text=f"Loaded: {filename}", text_color="#38BDF8")
 
     def on_role_select(self, role):
-        if role in self.app.analyser.job_roles:
-            keywords = ", ".join(self.app.analyser.job_roles[role])
+        if role in SAMPLE_JOB_DESCRIPTIONS:
+            job_text = SAMPLE_JOB_DESCRIPTIONS[role]
             self.jd_text.delete("0.0", "end")
-            self.jd_text.insert("0.0", f"Keywords for {role}:\n{keywords}")
-
-    def on_similarity_mode_select(self, label):
-        self.app.analyser.set_similarity_mode(self.similarity_mode_map.get(label, "tfidf"))
+            self.jd_text.insert("0.0", job_text)
 
     def run_analysis(self):
         if not self.app.resume_path:
-            messagebox.showerror("Hold Up!", "You forgot to upload your resume. Let's not get ahead of ourselves.")
+            messagebox.showerror("No Resume Selected", "Please upload your resume (PDF, DOCX, or TXT) before starting the analysis.")
             return
 
         job_description = self.jd_text.get("0.0", "end").strip()
-        if not job_description or job_description == "Or paste the job description here...":
-            messagebox.showerror("What's the Goal?", "Please select a role or paste a job description. I'm smart, but not a mind reader.")
+        if not job_description or job_description.startswith("Paste the job description here"):
+            messagebox.showerror("Job Description Needed", "Please select a sample role or paste a job description to receive role-specific recommendations.")
             return
 
-        self.analyze_button.configure(text="ANALYZING...", state="disabled")
-        self.app.page_manager.show_page("ResultsPage")
+        self.analyze_button.configure(text="Analyzing Resume...", state="disabled")
+        self.loading_bar.pack(fill="x", padx=20, pady=(0, 16))
+        self.loading_bar.start()
 
         def analysis_thread():
             try:
                 self.app.analyser.load_resume(self.app.resume_path)
                 self.app.analyser.set_job_description(job_description)
-                self.app.analyser.set_similarity_mode(self.similarity_mode_map.get(self.similarity_mode_var.get(), "tfidf"))
+                self.app.analyser.set_similarity_mode("tfidf")
                 self.app.analysis_results = self.app.analyser.analyze()
                 
-                # Switch back to main thread to update UI
                 self.app.after(100, self.on_analysis_complete)
             except Exception as e:
                 self.app.after(100, lambda: self.on_analysis_error(e))
@@ -172,23 +267,31 @@ class UploadPage(ctk.CTkFrame):
         threading.Thread(target=analysis_thread, daemon=True).start()
 
     def on_analysis_complete(self):
-        self.analyze_button.configure(text="WORK YOUR MAGIC ✨", state="normal")
+        self.analyze_button.configure(text="Analyze Resume", state="normal")
+        self.loading_bar.stop()
+        self.loading_bar.pack_forget()
+        
+        # Save to history automatically upon analysis
+        if self.app.analysis_results:
+            self.app.history_manager.add_analysis(self.app.analysis_results)
+            
+        self.app.page_manager.show_page("ResultsPage")
         results_page = self.app.page_manager.pages.get("ResultsPage")
         if results_page:
             results_page.refresh()
 
     def on_analysis_error(self, error):
-        self.analyze_button.configure(text="WORK YOUR MAGIC ✨", state="normal")
-        messagebox.showerror("Uh Oh!", f"An error occurred during analysis:\n{error}")
-        self.app.page_manager.show_page("UploadPage")
+        self.analyze_button.configure(text="Analyze Resume", state="normal")
+        self.loading_bar.stop()
+        self.loading_bar.pack_forget()
+        messagebox.showerror("Analysis Error", f"Your resume could not be processed: {str(error)}")
 
     def refresh(self):
-        # Reset fields on page view
-        self.app.resume_path = None
-        self.upload_label.configure(text="Drop your resume here\nor click to browse", text_color="gray")
-        self.browse_button.configure(text="Browse Files")
-        self.role_var.set("Pick a dream role...")
-        self.similarity_mode_var.set("TF-IDF")
-        self.app.analyser.set_similarity_mode("tfidf")
-        self.jd_text.delete("0.0", "end")
-        self.jd_text.insert("0.0", "Or paste the job description here...")
+        # Keep selected resume if user returns, but reset role if empty
+        if not self.app.resume_path:
+            self.file_name_label.configure(text="No file selected yet", text_color="#94A3B8")
+            self.change_file_btn.pack_forget()
+            self.upload_label.configure(text="Drag & drop your file here\nor", text_color="#94A3B8")
+            self.role_var.set("Select a role...")
+            self.jd_text.delete("0.0", "end")
+            self.jd_text.insert("0.0", "Paste the job description here or choose a sample role above...")

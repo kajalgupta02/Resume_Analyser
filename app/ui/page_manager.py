@@ -7,7 +7,7 @@ from .pages.history_page import HistoryPage
 
 class PageManager(ctk.CTkFrame):
     def __init__(self, app):
-        super().__init__(app)
+        super().__init__(app, fg_color="#070B14")
         self.app = app
         self.pages = {}
         self.current_page = None

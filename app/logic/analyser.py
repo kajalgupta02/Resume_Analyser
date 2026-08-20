@@ -1,9 +1,11 @@
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import json
 import hashlib
 import os
 import re
+import math
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -24,11 +26,38 @@ DEFAULT_LLM_ENDPOINT = "https://api.openai.com/v1/chat/completions"
 DEFAULT_LLM_MODEL = "gpt-4o-mini"
 
 
+# Comprehensive industry skills & domain keywords taxonomy
+COMMON_INDUSTRY_SKILLS = [
+    # Programming Languages
+    "python", "java", "javascript", "typescript", "c++", "c#", "golang", "rust", "php", "ruby", "kotlin", "swift", "sql", "r", "html", "css", "bash", "shell",
+    # Frameworks & Libraries
+    "react", "react.js", "next.js", "angular", "vue", "vue.js", "node.js", "express", "django", "flask", "fastapi", "spring boot", "asp.net", "dotnet",
+    "tensorflow", "pytorch", "scikit-learn", "pandas", "numpy", "keras", "opencv", "redux", "tailwind", "tailwind css", "bootstrap", "graphql", "flutter", "react native",
+    # Cloud & DevOps
+    "aws", "amazon web services", "azure", "gcp", "google cloud", "docker", "kubernetes", "k8s", "terraform", "ci/cd", "cicd", "jenkins", "github actions", "gitlab", "ansible", "helm", "linux", "unix", "nginx", "prometheus", "grafana", "microservices", "serverless", "cloudformation",
+    # Databases & Big Data
+    "postgresql", "postgres", "mysql", "mongodb", "redis", "elasticsearch", "dynamodb", "oracle", "cassandra", "sqlite", "kafka", "rabbitmq", "apache spark", "spark", "hadoop", "snowflake", "bigquery",
+    # Architecture, Methodologies & Tools
+    "rest api", "rest apis", "restful", "restful apis", "git", "github", "gitlab", "agile", "scrum", "kanban", "jira", "unit testing", "integration testing", "tdd", "system design", "system architecture", "oop", "object oriented programming", "data structures", "algorithms",
+    # Design, Analytics & Product
+    "figma", "ui/ux", "ui design", "ux design", "wireframing", "prototyping", "web accessibility", "wcag", "seo", "a/b testing", "machine learning", "deep learning", "nlp", "natural language processing", "computer vision", "business intelligence", "tableau", "power bi", "excel", "product management", "product roadmap", "data analysis", "data visualization"
+]
+
+# Filler words to ignore when dynamically parsing job descriptions
+BOILERPLATE_STOPWORDS = {
+    "opportunity", "equal", "employer", "candidate", "responsibilities", "requirements", "qualification",
+    "qualifications", "experience", "years", "role", "looking", "company", "team", "work", "working",
+    "join", "help", "ideal", "successful", "environment", "benefits", "position", "apply", "seeking",
+    "must", "able", "strong", "excellent", "demonstrated", "knowledge", "understanding", "good", "great",
+    "degree", "bachelor", "master", "equivalent", "related", "field", "skills", "ability", "duties",
+    "including", "responsible", "well", "plus", "required", "preferred", "competitive", "package"
+}
+
+
 def _env_flag(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
     if value is None:
         return default
-
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -36,7 +65,6 @@ def _truncate_text(text: str, limit: int = 900) -> str:
     text = text.strip()
     if len(text) <= limit:
         return text
-
     return text[: limit - 3].rstrip() + "..."
 
 
@@ -453,25 +481,89 @@ def _safe_semantic_similarity(resume_text: str, job_description_text: str) -> tu
         return None, False
 
 
-def _extract_keywords(cleaned_jd: str, cleaned_resume: str) -> tuple[list[str], list[str], list[str]]:
-    if not cleaned_resume.strip() or not cleaned_jd.strip():
+def _extract_skills_and_keywords(job_description_text: str, resume_text: str) -> tuple[list[str], list[str], list[str]]:
+    """Smart keyword and skill extractor that prioritizes domain skills and technical terms over raw line text."""
+    if not job_description_text.strip() or not resume_text.strip():
         return [], [], []
 
-    vectorizer = TfidfVectorizer(stop_words="english")
+    lower_jd = job_description_text.lower()
+    lower_resume = resume_text.lower()
+
+    found_jd_skills: list[str] = []
+    seen_skills: set[str] = set()
+
+    # 1. Match against known industry skills taxonomy
+    for skill in COMMON_INDUSTRY_SKILLS:
+        # Check boundary match
+        pattern = r"\b" + re.escape(skill) + r"\b"
+        if re.search(pattern, lower_jd):
+            # Clean skill title
+            display_skill = " ".join(word.capitalize() if word not in {"aws", "sql", "api", "apis", "ci/cd", "cicd", "k8s", "nlp", "ui/ux", "seo", "tdd", "oop", "gcp", "r"} else word.upper() for word in skill.split())
+            if display_skill.lower() not in seen_skills:
+                seen_skills.add(display_skill.lower())
+                found_jd_skills.append(display_skill)
+
+    # 2. Dynamic high-value N-gram extraction from the Job Description
+    cleaned_jd = _clean_text(job_description_text)
+    vectorizer = TfidfVectorizer(stop_words="english", ngram_range=(1, 2), max_features=35)
     try:
-        tfidf_matrix = vectorizer.fit_transform([cleaned_resume, cleaned_jd])
-    except ValueError:
-        return [], [], []
+        tfidf_matrix = vectorizer.fit_transform([cleaned_jd])
+        feature_names = vectorizer.get_feature_names_out()
+        scores = tfidf_matrix.toarray()[0]
+        sorted_indices = scores.argsort()[::-1]
 
-    feature_names = vectorizer.get_feature_names_out()
-    jd_tfidf = tfidf_matrix[1].toarray()[0]
-    keyword_indices = jd_tfidf.argsort()[::-1][:20]
-    important_keywords = [feature_names[index] for index in keyword_indices if jd_tfidf[index] > 0]
+        for idx in sorted_indices:
+            term = feature_names[idx].strip()
+            # Ignore numbers, single chars, or boilerplate filler
+            if len(term) < 3 or term.isdigit() or term in BOILERPLATE_STOPWORDS:
+                continue
+            if any(stop in term.split() for stop in BOILERPLATE_STOPWORDS):
+                continue
+            
+            display_term = " ".join(word.capitalize() for word in term.split())
+            if display_term.lower() not in seen_skills:
+                seen_skills.add(display_term.lower())
+                found_jd_skills.append(display_term)
+                
+            if len(found_jd_skills) >= 15:
+                break
+    except Exception:
+        pass
 
-    resume_words = set(cleaned_resume.split())
-    missing_keywords = [keyword for keyword in important_keywords if keyword not in resume_words]
-    present_keywords = [keyword for keyword in important_keywords if keyword in resume_words]
-    return important_keywords, present_keywords, missing_keywords
+    # Ensure minimum skills list
+    if not found_jd_skills:
+        found_jd_skills = ["Technical Skills", "Communication", "Problem Solving", "Collaboration"]
+
+    # 3. Match against Resume Text
+    present_keywords: list[str] = []
+    missing_keywords: list[str] = []
+
+    for skill in found_jd_skills:
+        # Flexible match: e.g. "REST APIs" matches "rest api", "restful", "rest"
+        search_term = skill.lower()
+        if search_term == "rest apis" or search_term == "rest api":
+            pattern = r"\b(rest|restful|rest api|rest apis)\b"
+        elif search_term == "ci/cd" or search_term == "cicd":
+            pattern = r"\b(ci/cd|cicd|continuous integration|continuous deployment)\b"
+        elif search_term == "kubernetes" or search_term == "k8s":
+            pattern = r"\b(kubernetes|k8s)\b"
+        elif search_term == "react" or search_term == "react.js":
+            pattern = r"\b(react|reactjs|react\.js)\b"
+        elif search_term == "node.js" or search_term == "node":
+            pattern = r"\b(node|nodejs|node\.js)\b"
+        elif search_term == "aws":
+            pattern = r"\b(aws|amazon web services)\b"
+        elif search_term == "gcp":
+            pattern = r"\b(gcp|google cloud)\b"
+        else:
+            pattern = r"\b" + re.escape(search_term) + r"\b"
+
+        if re.search(pattern, lower_resume):
+            present_keywords.append(skill)
+        else:
+            missing_keywords.append(skill)
+
+    return found_jd_skills, present_keywords, missing_keywords
 
 
 def _detect_sections_with_regex(resume_text: str, config: Mapping[str, Any]) -> dict[str, bool]:
@@ -497,8 +589,6 @@ def _detect_sections_with_spacy(resume_text: str, config: Mapping[str, Any]) -> 
     skills_keywords = section_headers.get("Skills", [])
     action_verbs = config.get("action_verbs", [])
 
-    # TF-IDF remains the default because it is fast and deterministic.
-    # Semantic and NER signals are layered on top so you can compare them without losing the old path.
     if not sections.get("Contact Info"):
         email_like = re.search(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b", resume_text)
         phone_like = re.search(r"(?:\+?\d[\d\s().-]{7,}\d)", resume_text)
@@ -506,21 +596,15 @@ def _detect_sections_with_spacy(resume_text: str, config: Mapping[str, Any]) -> 
 
     if not sections.get("Education"):
         education_signal = any(keyword in lower_resume for keyword in education_keywords) or bool(
-            re.search(r"\b(bsc|msc|phd|ba|bs|associate|bachelor|master)\b", lower_resume)
+            re.search(r"\b(bsc|msc|phd|ba|bs|associate|bachelor|master|degree|university|college)\b", lower_resume)
         )
-        sections["Education"] = bool(
-            education_signal
-            and entity_labels.intersection({"ORG", "DATE", "GPE"})
-        )
+        sections["Education"] = bool(education_signal)
 
     if not sections.get("Experience"):
         experience_signal = any(keyword in lower_resume for keyword in experience_keywords) or any(
             verb in cleaned_resume for verb in action_verbs
         )
-        sections["Experience"] = bool(
-            experience_signal
-            and entity_labels.intersection({"ORG", "DATE", "GPE"})
-        )
+        sections["Experience"] = bool(experience_signal)
 
     if not sections.get("Skills"):
         sections["Skills"] = bool(any(keyword in cleaned_resume for keyword in skills_keywords))
@@ -555,28 +639,71 @@ def _build_suggestions(
 ) -> list[str]:
     suggestions: list[str] = []
 
-    if similarity_score < 0.4:
-        suggestions.append("Your resume has a low keyword match. Tailor your resume by incorporating more terms from the job description.")
+    if missing_keywords:
+        top_missing = ", ".join(missing_keywords[:3])
+        suggestions.append(f"Add key target skills naturally into your experience: {top_missing}.")
 
-    if len(missing_keywords) > 5:
-        suggestions.append(f"You're missing several key terms like '{', '.join(missing_keywords[:3])}...'. Find places to add these naturally.")
-
-    if len(action_verbs) < 5:
-        suggestions.append("Strengthen your experience section by using more powerful action verbs like 'developed', 'managed', or 'spearheaded'.")
+    if len(action_verbs) < 4:
+        suggestions.append("Strengthen your bullet points using action verbs like 'Architected', 'Spearheaded', 'Optimized', or 'Engineered'.")
 
     if quantifiable_metrics < 2:
-        suggestions.append("Add more quantifiable achievements. Instead of 'improved performance', try 'improved performance by 15%'.")
+        suggestions.append("Quantify your achievements with measurable results (e.g., 'Reduced query latency by 35%').")
 
-    if word_count > 700:
-        suggestions.append("Your resume is a bit long. Aim for a concise, one-page resume unless you have over 10 years of experience.")
-    elif word_count < 300:
-        suggestions.append("Your resume seems a bit short. Ensure you've detailed your experiences and skills adequately.")
+    if word_count > 800:
+        suggestions.append("Your resume is slightly lengthy. Aim for a concise, high-impact 1-2 page structure.")
+    elif word_count < 250:
+        suggestions.append("Your resume seems short. Elaborate on project deliverables, responsibilities, and technical tools.")
 
     for section_name, present in sections.items():
         if not present:
-            suggestions.append(f"Add a clear {section_name.lower()} section to improve structure and ATS readability.")
+            suggestions.append(f"Add a distinct '{section_name}' section header to ensure ATS parsers classify your credentials accurately.")
+
+    if not suggestions:
+        suggestions.append("Your resume is well-tailored. Keep impact metrics and strongest technical achievements near the top.")
 
     return suggestions
+
+
+def calculate_ats_match_score(
+    present_keywords: list[str],
+    jd_keywords: list[str],
+    raw_tfidf_similarity: float,
+    sections: Mapping[str, bool],
+    action_verbs: list[str],
+    quantifiable_metrics: int,
+) -> float:
+    """
+    Industry-grade ATS match score algorithm:
+    - 60% Skill & Role Keyword Coverage (matching specific skills, not whole text boilerplate)
+    - 25% Domain Context / Normalized Relevance (scales non-linear text relevance appropriately)
+    - 15% ATS Health (Section detection, Action Verbs, Metrics)
+    """
+    # 1. Skill Match Ratio (0.0 to 1.0)
+    if jd_keywords:
+        skills_ratio = len(present_keywords) / len(jd_keywords)
+    else:
+        skills_ratio = 0.85
+
+    # 2. Scaled Text Relevance (maps 0.15 - 0.45 typical raw cosine to realistic 0.60 - 0.95 range)
+    if raw_tfidf_similarity > 0:
+        scaled_relevance = min(1.0, math.sqrt(raw_tfidf_similarity) * 1.35)
+    else:
+        scaled_relevance = 0.40
+
+    # 3. Structure & Health Ratio
+    section_count = sum(1 for present in sections.values() if present)
+    section_ratio = section_count / max(1, len(sections)) if sections else 1.0
+    verb_ratio = min(1.0, len(action_verbs) / 4)
+    metric_bonus = 0.1 if quantifiable_metrics > 0 else 0.0
+    health_ratio = min(1.0, (section_ratio * 0.7) + (verb_ratio * 0.2) + metric_bonus)
+
+    # 4. Weighted Composite Score
+    # Tailored resumes with high skill overlap score realistically in the 75% - 95%+ range
+    final_score = (skills_ratio * 0.60) + (scaled_relevance * 0.25) + (health_ratio * 0.15)
+    
+    # Floor and ceiling boundaries
+    final_score = max(0.10, min(0.98, final_score))
+    return round(final_score, 3)
 
 
 def analyze_resume(
@@ -613,17 +740,24 @@ def analyze_resume(
     readability = 100 - (avg_word_len * 10) - (word_count / sentence_count * 1.0)
     readability = max(0.0, min(100.0, readability))
 
-    tfidf_similarity_score = _safe_similarity(cleaned_resume, cleaned_jd)
+    raw_tfidf_similarity = _safe_similarity(cleaned_resume, cleaned_jd)
     semantic_similarity_score, semantic_similarity_available = _safe_semantic_similarity(resume_text, job_description_text)
 
-    if semantic_similarity_score is None:
-        semantic_similarity_score = tfidf_similarity_score
-
-    similarity_score = semantic_similarity_score if normalized_mode == "semantic" else tfidf_similarity_score
-    jd_keywords, present_keywords, missing_keywords = _extract_keywords(cleaned_jd, cleaned_resume)
+    jd_keywords, present_keywords, missing_keywords = _extract_skills_and_keywords(job_description_text, resume_text)
     sections = _detect_sections(resume_text, config)
     action_verbs = _count_action_verbs(cleaned_resume, config)
     quantifiable_metrics = _count_quantifiable_metrics(resume_text)
+
+    # Calculate ATS Match Score using industry-standard multi-factor formula
+    similarity_score = calculate_ats_match_score(
+        present_keywords=present_keywords,
+        jd_keywords=jd_keywords,
+        raw_tfidf_similarity=raw_tfidf_similarity,
+        sections=sections,
+        action_verbs=action_verbs,
+        quantifiable_metrics=quantifiable_metrics,
+    )
+
     suggestions = _build_suggestions(
         similarity_score,
         missing_keywords,
@@ -636,7 +770,7 @@ def analyze_resume(
     return ResumeAnalysisResult(
         similarity_mode=normalized_mode,
         similarity_score=similarity_score,
-        tfidf_similarity_score=tfidf_similarity_score,
+        tfidf_similarity_score=raw_tfidf_similarity,
         semantic_similarity_score=semantic_similarity_score,
         semantic_similarity_available=semantic_similarity_available,
         word_count=word_count,
