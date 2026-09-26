@@ -1,7 +1,7 @@
 import customtkinter as ctk
 from .sidebar import Sidebar
 from .page_manager import PageManager
-from ..logic.analyser import ResumeAnalyser
+from ..logic.service import ResumeAnalyser
 from ..logic.history_manager import HistoryManager
 
 class App(ctk.CTk):

@@ -13,11 +13,14 @@ from typing import Any, Mapping
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
-import fitz  # PyMuPDF
-import nltk
-from docx import Document
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+try:  # Legacy implementation dependencies; maintained code imports them lazily.
+    import fitz  # PyMuPDF
+    import nltk
+    from docx import Document
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity
+except ImportError:
+    fitz = nltk = Document = TfidfVectorizer = cosine_similarity = None
 
 
 DEFAULT_CONFIG_PATH = Path(__file__).with_name("analysis_config.json")
@@ -824,3 +827,14 @@ class ResumeAnalyser:
     def generate_recommendations(self, similarity, missing_keywords, sections):
         self.analyze()
         return self.results.suggestions + self.results.llm_feedback
+
+
+# Compatibility exports.  The maintained implementation lives in focused modules;
+# these aliases retain the original import path for existing callers.
+from .analysis_engine import analyze_resume, calculate_ats_match_score
+from .config import DEFAULT_CONFIG_PATH, load_analysis_config
+from .constants import COMMON_INDUSTRY_SKILLS, DEFAULT_LLM_ENDPOINT, DEFAULT_LLM_MODEL
+from .llm_feedback import DEFAULT_LLM_CACHE_PATH, LLMFeedbackService
+from .models import LLMFeedbackConfig, LLMFeedbackResult, ResumeAnalysisResult
+from .resume_reader import load_resume_text
+from .service import ResumeAnalyser
